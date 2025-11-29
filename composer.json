@@ -6,14 +6,14 @@
   "scripts": {
     "start": "php -S localhost:8080 -t public",
     "test": "phpunit",
-    "phinx:create": "phinx create",
-    "phinx:migrate": "phinx migrate",
-    "phinx:create-verbose": "phinx create -vvv",
-    "phinx:migrate-verbose": "phinx migrate -vvv",
-    "phinx:create-seed": "phinx seed:create",
-    "phinx:seed": "phinx seed",
-    "phinx:status": "phinx status",
-    "phinx:rollback": "phinx rollback"
+    "phinx-create": "phinx create",
+    "phinx-migrate": "phinx migrate",
+    "phinx-create-verbose": "phinx create -vvv",
+    "phinx-migrate-verbose": "phinx migrate -vvv",
+    "phinx-create-seed": "phinx seed:create",
+    "phinx-seed": "phinx seed",
+    "phinx-status": "phinx status", 
+    "phinx-rollback": "phinx rollback"
   },
   "autoload": {
     "psr-4": {
@@ -21,17 +21,19 @@
     }
   },
   "require": {
-    "vlucas/phpdotenv": "^5.6",
-    "phpmailer/phpmailer": "^6.10",
     "firebase/php-jwt": "^6.11",
+    "illuminate/container": "^10.49",
+    "illuminate/database": "^10.0",
+    "illuminate/events": "^10.49",
     "monolog/monolog": "^3.5",
     "php-di/php-di": "^7.0",
-    "slim/psr7": "^1.6",
-    "slim/slim": "^4.12",
+    "phpmailer/phpmailer": "^6.10",
     "ramsey/uuid": "^4.8",
     "respect/validation": "^2.4",
-    "illuminate/database": "^10.0",
-    "robmorgan/phinx": "^0.15"
+    "robmorgan/phinx": "^0.15",
+    "slim/psr7": "^1.6",
+    "slim/slim": "^4.12",
+    "vlucas/phpdotenv": "^5.6"
   },
   "authors": [
     {

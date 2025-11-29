@@ -1,11 +1,13 @@
 <?php
 
+namespace App\Helper;
+
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use Slim\Exception\HttpException;
 use Slim\Interfaces\ErrorHandlerInterface;
-// use Throwable;
+use Throwable;
 
 /**
  * Custom Error Handler

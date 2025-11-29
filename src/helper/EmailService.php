@@ -226,7 +226,7 @@ function generateOtpEmailTemplate(string $otp): string
             
             <div class="message">
                 Thanks,<br>
-                The Hotel Management System Team
+                
             </div>
         </div>
         

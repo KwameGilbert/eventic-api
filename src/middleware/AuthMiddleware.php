@@ -2,9 +2,13 @@
 
 declare(strict_types=1);
 
+namespace App\Middleware;
+
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
+use App\Services\AuthService;
+use App\Helper\ResponseHelper;
 
 /**
  * Authentication Middleware
@@ -14,6 +18,13 @@ use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
  */
 class AuthMiddleware
 {
+    private AuthService $authService;
+
+    public function __construct(AuthService $authService)
+    {
+        $this->authService = $authService;
+    }
+
     /**
      * Process incoming request and validate authentication
      *
@@ -31,22 +42,21 @@ class AuthMiddleware
         }
 
         // Check if it's a Bearer token
-        if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $matches)) {
+        $token = $this->authService->extractTokenFromHeader($authHeader);
+
+        if (!$token) {
             return $this->createUnauthorizedResponse('Invalid authorization header format. Expected: Bearer <token>');
         }
 
-        $token = $matches[1];
-
         // Validate the JWT token
-        require_once HELPER . '/JwtHelper.php';
-        $decoded = JwtHelper::validateToken($token);
+        $decoded = $this->authService->validateToken($token);
 
         if ($decoded === null) {
             return $this->createUnauthorizedResponse('Invalid or expired token');
         }
 
         // Add user data to request attributes for use in controllers
-        $request = $request->withAttribute('user', $decoded);
+        $request = $request->withAttribute('user', $decoded->data);
 
         // Continue with the request
         return $handler->handle($request);
@@ -61,14 +71,6 @@ class AuthMiddleware
     private function createUnauthorizedResponse(string $message): Response
     {
         $response = new \Slim\Psr7\Response();
-        $response->getBody()->write(json_encode([
-            'status' => 'error',
-            'code' => 401,
-            'message' => $message
-        ]));
-
-        return $response
-            ->withHeader('Content-Type', 'application/json')
-            ->withStatus(401);
+        return ResponseHelper::error($response, $message, 401);
     }
 }

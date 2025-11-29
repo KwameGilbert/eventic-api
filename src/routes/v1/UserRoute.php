@@ -5,10 +5,12 @@
  * Demonstrates Eloquent ORM usage in Slim Framework
  */
 
-require_once CONTROLLER . 'UserController.php';
+use App\Controllers\UserController;
+use Slim\App;
 
-return function ($app): void {
-    $userController = new UserController();
+return function (App $app): void {
+    // Get controller from container (allows for Dependency Injection)
+    $userController = $app->getContainer()->get(UserController::class);
     
     // User routes
     $app->get('/v1/users', [$userController, 'index']);
