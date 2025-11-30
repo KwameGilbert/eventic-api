@@ -98,7 +98,7 @@ class LoggerFactory
         $logger->pushProcessor(new WebProcessor());
 
         // Get environment for context
-        $environment = $_ENV['ENVIRONMENT'] ?? 'production';
+        $environment = $_ENV['APP_ENV'] ?? 'production';
 
         // Add environment context processor - compatible with both Monolog 2.x and 3.x
         $logger->pushProcessor(function ($record) use ($environment) {
@@ -151,7 +151,7 @@ class LoggerFactory
         $logger->pushProcessor(new WebProcessor());
 
         // Add environment context processor - compatible with both Monolog 2.x and 3.x
-        $environment = $_ENV['ENVIRONMENT'] ?? 'production';
+        $environment = $_ENV['APP_ENV'] ?? 'production';
         $logger->pushProcessor(function ($record) use ($environment) {
             // For Monolog 3.x (LogRecord object)
             if ($record instanceof LogRecord) {
