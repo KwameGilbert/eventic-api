@@ -4,7 +4,6 @@
  * Application Entry Point
  * 
  * Main entry point for the Eventic API
- * All bootstrapping is handled in separate organized files
  */
 
 // Define application paths

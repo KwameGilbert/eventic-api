@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+require_once MODEL . 'UsersModel.php';
 use App\Models\User;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
