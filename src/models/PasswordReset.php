@@ -46,7 +46,7 @@ class PasswordReset extends Model
      */
     public function scopeValid($query)
     {
-        return $query->where('created_at', '>', now()->subHour());
+        return $query->where('created_at', '>', date('Y-m-d H:i:s', strtotime('-1 hour')));
     }
 
     /**
@@ -64,7 +64,7 @@ class PasswordReset extends Model
     {
         return static::where('email', $email)
                     ->where('token', hash('sha256', $token))
-                    ->where('created_at', '>', now()->subHour())
+                    ->where('created_at', '>', date('Y-m-d H:i:s', strtotime('-1 hour')))
                     ->first();
     }
 
@@ -73,7 +73,7 @@ class PasswordReset extends Model
      */
     public static function cleanupExpired(): int
     {
-        return static::where('created_at', '<', now()->subHour())->delete();
+        return static::where('created_at', '<', date('Y-m-d H:i:s', strtotime('-1 hour')))->delete();
     }
 
     /**

@@ -34,7 +34,7 @@ return function ($app, $container, $config) {
     
     // ==================== HTTP LOGGING ====================
     
-    // Add HTTP logger middleware if httpLogger exists
+    // Add HTTP logger middleware
     if ($container->has('httpLogger')) {
         $app->add(new RequestResponseLoggerMiddleware($container->get('httpLogger')));
     }
@@ -73,6 +73,10 @@ return function ($app, $container, $config) {
             ->withHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
             ->withHeader('Access-Control-Max-Age', (string)$corsConfig['max_age']);
     });
+    
+    // ==================== JSON BODY PARSING ====================
+    
+    $app->add($container->get(\App\Middleware\JsonBodyParserMiddleware::class));
     
     // ==================== CONTENT LENGTH ====================
     

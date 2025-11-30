@@ -7,7 +7,6 @@ namespace App\Middleware;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
-use Slim\Psr7\Response as SlimResponse;
 use App\Helper\ResponseHelper;
 
 /**
@@ -158,11 +157,11 @@ class RateLimitMiddleware
     }
 
     /**
-     * Build rate limit exceeded response
+     * Build rate limit exceeded response using PSR-7
      */
-    private function buildRateLimitResponse(string $key): Response
+    private function buildRateLimitResponse(string $key, Response $response): Response
     {
-        $response = new SlimResponse();
+        // Use PSR-7 response (Slim's implementation, but via interface)
         $retryAfter = $this->availableIn($key);
 
         $response = ResponseHelper::error(

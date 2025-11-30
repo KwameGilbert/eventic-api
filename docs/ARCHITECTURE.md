@@ -330,7 +330,7 @@ POST /v1/auth/login
 **Example:**
 ```php
 public function create(Request $req, Response $res): Response {
-    $data = $req->getParsedBody();
+    $data = $req->getBody();
     
     // Validate
     if (empty($data['email'])) {

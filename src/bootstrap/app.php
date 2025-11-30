@@ -12,6 +12,7 @@ use Dotenv\Dotenv;
 use App\Helper\LoggerFactory;
 use App\Config\EloquentBootstrap;
 
+
 // Load environment variables
 $dotenv = Dotenv::createImmutable(BASE);
 $dotenv->load();

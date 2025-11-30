@@ -58,7 +58,7 @@ class PasswordResetService
             PasswordReset::create([
                 'email' => $email,
                 'token' => $tokenHash,
-                'created_at' => now()
+                'created_at' => date('Y-m-d H:i:s')
             ]);
 
             // Log the request
@@ -94,7 +94,7 @@ class PasswordResetService
 
         return PasswordReset::where('email', $email)
             ->where('token', $tokenHash)
-            ->where('created_at', '>', now()->subSeconds($this->tokenExpiry))
+            ->where('created_at', '>', date('Y-m-d H:i:s', time() - $this->tokenExpiry))
             ->exists();
     }
 

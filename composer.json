@@ -12,12 +12,18 @@
     "phinx-migrate-verbose": "phinx migrate -vvv",
     "phinx-create-seed": "phinx seed:create",
     "phinx-seed": "phinx seed",
-    "phinx-status": "phinx status", 
+    "phinx-status": "phinx status",
     "phinx-rollback": "phinx rollback"
   },
   "autoload": {
     "psr-4": {
-      "App\\": "src/"
+      "App\\": "src/",
+      "App\\Models\\": "src/models/",
+      "App\\Controllers\\": "src/controllers/",
+      "App\\Services\\": "src/services/",
+      "App\\Helper\\": "src/helpers/",
+      "App\\Middleware\\": "src/middleware/",
+      "App\\Routes\\": "src/routes/"
     }
   },
   "require": {

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Services\AuthService;
 use App\Models\User;
 use App\Helper\ResponseHelper;
+use App\Services\AuthService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Respect\Validation\Validator as v;
@@ -39,6 +39,7 @@ class AuthController
     {
         try {
             $data = $request->getParsedBody();
+            $metadata = $this->getRequestMetadata($request);
 
             // Validation
             $errors = $this->validateRegistration($data);
@@ -63,8 +64,10 @@ class AuthController
                 'first_login' => true
             ]);
 
+            // Log registration event
+            $this->authService->logAuditEvent($user->id, 'register', $metadata);
+
             // Generate tokens
-            $metadata = $this->getRequestMetadata($request);
             $userPayload = $this->authService->generateUserPayload($user);
             $accessToken = $this->authService->generateAccessToken($userPayload);
             $refreshToken = $this->authService->createRefreshToken($user->id, $metadata);
@@ -95,6 +98,7 @@ class AuthController
     {
         try {
             $data = $request->getParsedBody();
+            $metadata = $this->getRequestMetadata($request);
 
             // Validation
             if (empty($data['email']) || empty($data['password'])) {
@@ -105,31 +109,51 @@ class AuthController
             $user = User::where('email', $data['email'])->first();
 
             if (!$user) {
+                // Log failed login attempt (no user found)
+                $this->authService->logAuditEvent(null, 'login_failed', array_merge($metadata, [
+                    'extra' => ['reason' => 'user_not_found', 'email' => $data['email']]
+                ]));
                 return ResponseHelper::error($response, 'Invalid credentials', 401);
             }
 
             // Verify password
             if (!$this->authService->verifyPassword($data['password'], $user->password)) {
+                // Log failed login attempt (wrong password)
+                $this->authService->logAuditEvent($user->id, 'login_failed', array_merge($metadata, [
+                    'extra' => ['reason' => 'invalid_password']
+                ]));
                 return ResponseHelper::error($response, 'Invalid credentials', 401);
             }
 
             // Check if user is active
             if ($user->status !== User::STATUS_ACTIVE) {
+                // Log suspended account login attempt
+                $this->authService->logAuditEvent($user->id, 'login_failed', array_merge($metadata, [
+                    'extra' => ['reason' => 'account_suspended']
+                ]));
                 return ResponseHelper::error($response, 'Account is suspended', 403);
             }
 
             // Generate tokens
-            $metadata = $this->getRequestMetadata($request);
             $userPayload = $this->authService->generateUserPayload($user);
             $accessToken = $this->authService->generateAccessToken($userPayload);
             $refreshToken = $this->authService->createRefreshToken($user->id, $metadata);
 
-            // Update first_login if needed
+            // Update first_login flag and last login info
             if ($user->first_login) {
-                $user->update(['first_login' => false]);
+                $user->update([
+                    'first_login' => false,
+                    'last_login_at' => date('Y-m-d H:i:s'),
+                    'last_login_ip' => $metadata['ip_address']
+                ]);
+            } else {
+                $user->update([
+                    'last_login_at' => date('Y-m-d H:i:s'),
+                    'last_login_ip' => $metadata['ip_address']
+                ]);
             }
 
-            // Log login event
+            // Log successful login event
             $this->authService->logAuditEvent($user->id, 'login', $metadata);
 
             return ResponseHelper::success($response, 'Login successful', [
@@ -138,7 +162,7 @@ class AuthController
                     'name' => $user->name,
                     'email' => $user->email,
                     'role' => $user->role,
-                    'first_login' => $user->first_login
+                    'first_login' => false
                 ],
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken,

@@ -77,7 +77,7 @@ class RefreshToken extends Model
     {
         $this->update([
             'revoked' => true,
-            'revoked_at' => now()
+            'revoked_at' => date('Y-m-d H:i:s')
         ]);
     }
 
@@ -87,7 +87,7 @@ class RefreshToken extends Model
     public function scopeValid($query)
     {
         return $query->where('revoked', false)
-                    ->where('expires_at', '>', now());
+                    ->where('expires_at', '>', date('Y-m-d H:i:s'));
     }
 
     /**
@@ -103,7 +103,7 @@ class RefreshToken extends Model
      */
     public static function cleanupExpired(): int
     {
-        return static::where('expires_at', '<', now())->delete();
+        return static::where('expires_at', '<', date('Y-m-d H:i:s'))->delete();
     }
 
     /**
@@ -115,7 +115,7 @@ class RefreshToken extends Model
                     ->where('revoked', false)
                     ->update([
                         'revoked' => true,
-                        'revoked_at' => now()
+                        'revoked_at' => date('Y-m-d H:i:s')
                     ]);
     }
 }

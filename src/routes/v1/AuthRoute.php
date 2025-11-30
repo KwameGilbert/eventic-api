@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Controllers\AuthController;
+use App\Controllers\PasswordResetController;
 use App\Middleware\AuthMiddleware;
 use Slim\App;
 
@@ -14,13 +15,18 @@ use Slim\App;
  */
 
 return function (App $app) {
-    // Get auth controller from container
+    // Get controllers from container
     $authController = $app->getContainer()->get(AuthController::class);
+    $passwordResetController = $app->getContainer()->get(PasswordResetController::class);
     
     // Public routes (no authentication required)
     $app->post('/v1/auth/register', [$authController, 'register']);
     $app->post('/v1/auth/login', [$authController, 'login']);
     $app->post('/v1/auth/refresh', [$authController, 'refresh']);
+    
+    // Password reset routes (public)
+    $app->post('/v1/auth/password/forgot', [$passwordResetController, 'requestReset']);
+    $app->post('/v1/auth/password/reset', [$passwordResetController, 'resetPassword']);
     
     // Protected routes (authentication required)
     $app->group('/v1/auth', function ($group) use ($authController) {

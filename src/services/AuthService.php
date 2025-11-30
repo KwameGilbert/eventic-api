@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Exception;
 use App\Models\RefreshToken;
 use App\Models\AuditLog;
+
 
 /**
  * AuthService
@@ -241,7 +243,7 @@ class AuthService
             'device_name' => $metadata['device_name'] ?? null,
             'ip_address' => $metadata['ip_address'] ?? null,
             'user_agent' => $metadata['user_agent'] ?? null,
-            'expires_at' => now()->addSeconds($this->refreshTokenExpiry)
+            'expires_at' => date('Y-m-d H:i:s', time() + $this->refreshTokenExpiry)
         ]);
 
         return $plainToken;

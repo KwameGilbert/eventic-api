@@ -12,8 +12,10 @@ use App\Services\PasswordResetService;
 use App\Services\VerificationService;
 use App\Controllers\AuthController;
 use App\Controllers\UserController;
+use App\Controllers\PasswordResetController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
+use App\Middleware\JsonBodyParserMiddleware;
 
 return function ($container) {
     
@@ -34,6 +36,10 @@ return function ($container) {
     $container->set(VerificationService::class, function ($container) {
         return new VerificationService($container->get(EmailService::class));
     });
+
+    $container->set(\Psr\Http\Message\ResponseFactoryInterface::class, function () {
+        return new \Slim\Psr7\Factory\ResponseFactory();
+    });
     
     // ==================== CONTROLLERS ====================
     
@@ -45,6 +51,13 @@ return function ($container) {
         return new UserController();
     });
     
+    $container->set(PasswordResetController::class, function ($container) {
+        return new PasswordResetController(
+            $container->get(AuthService::class),
+            $container->get(EmailService::class)
+        );
+    });
+    
     // ==================== MIDDLEWARES ====================
     
     $container->set(AuthMiddleware::class, function ($container) {
@@ -54,6 +67,11 @@ return function ($container) {
     $container->set(RateLimitMiddleware::class, function () {
         return new RateLimitMiddleware();
     });
+    
+    $container->set(JsonBodyParserMiddleware::class, function () {
+        return new JsonBodyParserMiddleware();
+    });
+
     
     return $container;
 };

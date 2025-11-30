@@ -79,7 +79,7 @@ class AuditLog extends Model
      */
     public function scopeRecent($query, int $days = 7)
     {
-        return $query->where('created_at', '>', now()->subDays($days));
+        return $query->where('created_at', '>', date('Y-m-d H:i:s', strtotime("-$days days")));
     }
 
     /**
@@ -116,7 +116,7 @@ class AuditLog extends Model
     {
         return static::where('action', self::ACTION_LOGIN_FAILED)
                     ->where('ip_address', $ipAddress)
-                    ->where('created_at', '>', now()->subMinutes($minutes))
+                    ->where('created_at', '>', date('Y-m-d H:i:s', strtotime("-$minutes minutes")))
                     ->count();
     }
 
@@ -125,6 +125,6 @@ class AuditLog extends Model
      */
     public static function cleanupOld(int $days = 90): int
     {
-        return static::where('created_at', '<', now()->subDays($days))->delete();
+        return static::where('created_at', '<', date('Y-m-d H:i:s', strtotime("-$days days")))->delete();
     }
 }
