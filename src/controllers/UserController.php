@@ -94,6 +94,12 @@ class UserController
             if (!$user) {
                 return ResponseHelper::error($response, 'User not found', 404);
             }
+
+            // Authorization: Check if user is admin or the account owner
+            $requestUser = $request->getAttribute('user');
+            if ($requestUser->role !== 'admin' && (int)$id !== $requestUser->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You can only update your own profile', 403);
+            }
             
             // Check email uniqueness if email is being updated
             if (isset($data['email']) && User::emailExists($data['email'], (int)$id)) {
@@ -119,6 +125,12 @@ class UserController
             
             if (!$user) {
                 return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the account owner
+            $requestUser = $request->getAttribute('user');
+            if ($requestUser->role !== 'admin' && (int)$id !== $requestUser->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You can only delete your own profile', 403);
             }
             
             $user->delete();

@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Models\TicketType;
 use App\Models\Event;
+use App\Models\Organizer;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -111,6 +112,15 @@ class TicketTypeController
             if (!$ticketType) {
                 return ResponseHelper::error($response, 'Ticket type not found', 404);
             }
+
+            // Authorization: Check if user is admin or the event organizer
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $ticketType->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this ticket type', 403);
+                }
+            }
             
             // If quantity is updated, adjust remaining accordingly
             if (isset($data['quantity'])) {
@@ -141,6 +151,15 @@ class TicketTypeController
             
             if (!$ticketType) {
                 return ResponseHelper::error($response, 'Ticket type not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the event organizer
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $ticketType->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this ticket type', 403);
+                }
             }
             
             // Check if any tickets have been sold (logic depends on TicketOrder model, skipping for now or assuming 0 sold allows delete)

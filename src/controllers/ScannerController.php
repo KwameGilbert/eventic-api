@@ -134,6 +134,15 @@ class ScannerController
                 return ResponseHelper::error($response, 'User is not a scanner', 400);
             }
 
+            // Authorization: Check if this scanner is assigned to any of the organizer's events
+            $isAssigned = ScannerAssignment::where('user_id', $scannerUser->id)
+                                           ->where('organizer_id', $organizer->id)
+                                           ->exists();
+            
+            if (!$isAssigned) {
+                 return ResponseHelper::error($response, 'Unauthorized: Scanner is not assigned to your organization', 403);
+            }
+
             // Optional: Check if this scanner is linked to this organizer?
             // For now, we allow deletion if the ID is known and valid.
             // In a stricter system, we'd check if created_by matches or if assigned to this organizer.

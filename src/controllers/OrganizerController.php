@@ -92,6 +92,12 @@ class OrganizerController
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer not found', 404);
             }
+
+            // Authorization: Check if user is admin or the profile owner
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin' && $organizer->user_id !== $user->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
+            }
             
             $organizer->updateProfile($data);
             
@@ -112,6 +118,12 @@ class OrganizerController
             
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the profile owner
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin' && $organizer->user_id !== $user->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
             
             $organizer->deleteProfile();

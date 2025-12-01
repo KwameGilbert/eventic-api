@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Models\Event;
 use App\Models\Ticket;
 use App\Models\OrderItem;
+use App\Models\Organizer;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -125,6 +126,15 @@ class EventController
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
             }
+
+            // Authorization: Check if user is admin or the event organizer
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+                }
+            }
             
             // Update slug if title changes and slug isn't manually provided
             if (isset($data['title']) && !isset($data['slug'])) {
@@ -155,6 +165,15 @@ class EventController
             
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the event organizer
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+                }
             }
 
             // Validation: Check if event has tickets sold

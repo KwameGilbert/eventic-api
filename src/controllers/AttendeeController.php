@@ -95,6 +95,12 @@ class AttendeeController
             if (!$attendee) {
                 return ResponseHelper::error($response, 'Attendee not found', 404);
             }
+
+            // Authorization: Check if user is admin or the profile owner
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin' && $attendee->user_id !== $user->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
+            }
             
             $attendee->updateProfile($data);
             
@@ -115,6 +121,12 @@ class AttendeeController
             
             if (!$attendee) {
                 return ResponseHelper::error($response, 'Attendee not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the profile owner
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin' && $attendee->user_id !== $user->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
             
             $attendee->deleteProfile();

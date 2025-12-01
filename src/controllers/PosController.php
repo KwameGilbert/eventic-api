@@ -136,6 +136,16 @@ class PosController
             if ($posUser->role !== 'pos') {
                 return ResponseHelper::error($response, 'User is not a POS account', 400);
             }
+
+            // Authorization: Check if this POS user is assigned to any of the organizer's events
+            // This acts as a proxy for ownership since we don't have created_by
+            $isAssigned = PosAssignment::where('user_id', $posUser->id)
+                                       ->where('organizer_id', $organizer->id)
+                                       ->exists();
+            
+            if (!$isAssigned) {
+                 return ResponseHelper::error($response, 'Unauthorized: POS user is not assigned to your organization', 403);
+            }
             
             $posUser->delete();
 

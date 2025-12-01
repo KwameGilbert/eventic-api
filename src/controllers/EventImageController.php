@@ -55,8 +55,17 @@ class EventImageController
             }
             
             // Verify event exists
-            if (!Event::find($data['event_id'])) {
+            if (!($event = Event::find($data['event_id']))) {
                 return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the event organizer
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin') {
+                $organizer = \App\Models\Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+                }
             }
             
             $image = EventImage::create($data);
@@ -78,6 +87,16 @@ class EventImageController
             
             if (!$image) {
                 return ResponseHelper::error($response, 'Image not found', 404);
+            }
+
+            // Authorization: Check if user is admin or the event organizer
+            $user = $request->getAttribute('user');
+            if ($user->role !== 'admin') {
+                $event = Event::find($image->event_id);
+                $organizer = \App\Models\Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+                }
             }
             
             // TODO: Add logic to delete physical file if needed
