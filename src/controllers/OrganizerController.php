@@ -129,7 +129,7 @@ class OrganizerController
     {
         try {
             $queryParams = $request->getQueryParams();
-            $query = $queryParams['q'] ?? '';
+            $query = $queryParams['query'] ?? '';
 
             if (empty($query)) {
                 return ResponseHelper::error($response, 'Search query is required', 400);

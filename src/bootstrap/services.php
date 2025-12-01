@@ -14,6 +14,14 @@ use App\Controllers\AuthController;
 use App\Controllers\UserController;
 use App\Controllers\OrganizerController;
 use App\Controllers\PasswordResetController;
+use App\Controllers\AttendeeController;
+use App\Controllers\EventController;
+use App\Controllers\EventImageController;
+use App\Controllers\TicketTypeController;
+use App\Controllers\OrderController;
+use App\Controllers\TicketController;
+use App\Controllers\ScannerController;
+use App\Controllers\PosController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
 use App\Middleware\JsonBodyParserMiddleware;
@@ -61,6 +69,38 @@ return function ($container) {
             $container->get(AuthService::class),
             $container->get(EmailService::class)
         );
+    });
+
+    $container->set(AttendeeController::class, function () {
+        return new AttendeeController();
+    });
+
+    $container->set(EventController::class, function () {
+        return new EventController();
+    });
+
+    $container->set(EventImageController::class, function () {
+        return new EventImageController();
+    });
+
+    $container->set(TicketTypeController::class, function () {
+        return new TicketTypeController();
+    });
+
+    $container->set(OrderController::class, function () {
+        return new OrderController();
+    });
+
+    $container->set(TicketController::class, function () {
+        return new TicketController();
+    });
+
+    $container->set(ScannerController::class, function () {
+        return new ScannerController();
+    });
+
+    $container->set(PosController::class, function () {
+        return new PosController();
     });
     
     // ==================== MIDDLEWARES ====================

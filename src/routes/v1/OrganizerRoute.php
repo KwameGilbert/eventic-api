@@ -14,7 +14,9 @@ return function (App $app): void {
     // Organizer routes
     $app->group('/v1/organizers', function ($group) use ($organizerController) {
         $group->get('', [$organizerController, 'index']);
-        $group->get('/search', [$organizerController, 'search']); // 
+        
+        // Query Params: ?query={search_term}
+        $group->get('/search', [$organizerController, 'search']); 
         $group->get('/{id}', [$organizerController, 'show']);
         $group->post('', [$organizerController, 'create']);
         $group->put('/{id}', [$organizerController, 'update']);

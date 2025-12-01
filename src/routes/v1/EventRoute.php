@@ -13,7 +13,9 @@ return function (App $app): void {
     
     // Event routes
     $app->group('/v1/events', function ($group) use ($eventController) {
+        // Query Params: ?status={status}&event_type_id={id}&organizer_id={id}
         $group->get('', [$eventController, 'index']);
+        // Query Params: ?query={query}
         $group->get('/search', [$eventController, 'search']);
         $group->get('/{id}', [$eventController, 'show']);
         $group->post('', [$eventController, 'create']);
