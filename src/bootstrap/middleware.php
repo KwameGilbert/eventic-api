@@ -15,7 +15,7 @@ return function ($app, $container, $config) {
     
     // Get configurations
     $environment = $config['env'];
-    $corsConfig = require CONFIG . '/cors.php';
+    $corsConfig = require CONFIG . '/Cors.php';
     
     // ==================== ERROR HANDLING ====================
     
