@@ -95,6 +95,11 @@ class EventController
             if (!isset($data['status'])) {
                 $data['status'] = Event::STATUS_DRAFT;
             }
+
+            // Validate tags
+            if (isset($data['tags']) && !is_array($data['tags'])) {
+                return ResponseHelper::error($response, 'Tags must be an array', 400);
+            }
             
             $event = Event::create($data);
             
@@ -122,6 +127,11 @@ class EventController
             // Update slug if title changes and slug isn't manually provided
             if (isset($data['title']) && !isset($data['slug'])) {
                 $data['slug'] = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
+            }
+
+            // Validate tags
+            if (isset($data['tags']) && !is_array($data['tags'])) {
+                return ResponseHelper::error($response, 'Tags must be an array', 400);
             }
             
             $event->update($data);

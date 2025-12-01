@@ -24,6 +24,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property \Illuminate\Support\Carbon $start_time
  * @property \Illuminate\Support\Carbon $end_time
  * @property string $status
+ * @property string|null $audience
+ * @property string|null $language
+ * @property array|null $tags
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -79,6 +82,9 @@ class Event extends Model
         'start_time',
         'end_time',
         'status',
+        'audience',
+        'language',
+        'tags',
     ];
 
     /**
@@ -90,6 +96,7 @@ class Event extends Model
         'event_type_id' => 'integer',
         'start_time' => 'datetime',
         'end_time' => 'datetime',
+        'tags' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
