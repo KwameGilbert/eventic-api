@@ -12,6 +12,7 @@ use App\Services\PasswordResetService;
 use App\Services\VerificationService;
 use App\Controllers\AuthController;
 use App\Controllers\UserController;
+use App\Controllers\OrganizerController;
 use App\Controllers\PasswordResetController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
@@ -49,6 +50,10 @@ return function ($container) {
     
     $container->set(UserController::class, function () {
         return new UserController();
+    });
+
+    $container->set(OrganizerController::class, function () {
+        return new OrganizerController();
     });
     
     $container->set(PasswordResetController::class, function ($container) {

@@ -113,7 +113,7 @@ class AuthController
                 $this->authService->logAuditEvent(null, 'login_failed', array_merge($metadata, [
                     'extra' => ['reason' => 'user_not_found', 'email' => $data['email']]
                 ]));
-                return ResponseHelper::error($response, 'Invalid credentials', 401);
+                return ResponseHelper::error($response, 'User not found', 401);
             }
 
             // Verify password
@@ -122,7 +122,7 @@ class AuthController
                 $this->authService->logAuditEvent($user->id, 'login_failed', array_merge($metadata, [
                     'extra' => ['reason' => 'invalid_password']
                 ]));
-                return ResponseHelper::error($response, 'Invalid credentials', 401);
+                return ResponseHelper::error($response, 'Invalid password', 401);
             }
 
             // Check if user is active
