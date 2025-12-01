@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\Event;
+use App\Models\Ticket;
+use App\Models\OrderItem;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -153,6 +155,16 @@ class EventController
             
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Validation: Check if event has tickets sold
+            if (Ticket::where('event_id', $id)->exists()) {
+                return ResponseHelper::error($response, 'Cannot delete event with existing tickets', 400);
+            }
+
+            // Validation: Check if event has any order items (even if no tickets generated yet)
+            if (OrderItem::where('event_id', $id)->exists()) {
+                return ResponseHelper::error($response, 'Cannot delete event with associated orders', 400);
             }
             
             $event->delete();
