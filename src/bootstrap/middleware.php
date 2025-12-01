@@ -5,9 +5,11 @@
  * 
  * Registers all application middleware
  */
-
 use Slim\Middleware\ContentLengthMiddleware;
+use App\Helper\ErrorHandler as ErrorHandler;
 use App\Middleware\RequestResponseLoggerMiddleware;
+use App\Middleware\JsonBodyParserMiddleware as JsonBodyParserMiddleware;
+use App\Middleware\RateLimitMiddleware as RateLimitMiddleware;
 
 return function ($app, $container, $config) {
     
@@ -26,7 +28,7 @@ return function ($app, $container, $config) {
     );
     
     // Set custom error handler
-    $errorHandler = new \App\Helper\ErrorHandler(
+    $errorHandler = new ErrorHandler(
         $container->get('logger'),
         $environment
     );
@@ -39,6 +41,11 @@ return function ($app, $container, $config) {
         $app->add(new RequestResponseLoggerMiddleware($container->get('httpLogger')));
     }
     
+    // ==================== RATE LIMITING ====================
+    
+    // Add Rate Limit middleware
+    $app->add(new RateLimitMiddleware());
+
     // ==================== CORS ====================
     
     // Add CORS middleware
@@ -76,7 +83,7 @@ return function ($app, $container, $config) {
     
     // ==================== JSON BODY PARSING ====================
     
-    $app->add($container->get(\App\Middleware\JsonBodyParserMiddleware::class));
+    $app->add($container->get(JsonBodyParserMiddleware::class));
     
     // ==================== CONTENT LENGTH ====================
     
