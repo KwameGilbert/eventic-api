@@ -61,8 +61,11 @@ class AttendeeController
             $data = $request->getParsedBody();
             
             // Validate required fields
-            if (empty($data['user_id'])) {
-                return ResponseHelper::error($response, 'User ID is required', 400);
+            $requiredFields = ['user_id', 'first_name', 'last_name', 'email'];
+            foreach ($requiredFields as $field) {
+                if (empty($data[$field])) {
+                    return ResponseHelper::error($response, "Field '$field' is required", 400);
+                }
             }
             
             // Check if user already has an attendee profile

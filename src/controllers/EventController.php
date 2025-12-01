@@ -30,9 +30,9 @@ class EventController
                 $query->where('status', $queryParams['status']);
             }
 
-            // Filter by category
-            if (isset($queryParams['category'])) {
-                $query->where('category', $queryParams['category']);
+            // Filter by event type
+            if (isset($queryParams['event_type_id'])) {
+                $query->where('event_type_id', $queryParams['event_type_id']);
             }
 
             // Filter by organizer
@@ -40,7 +40,7 @@ class EventController
                 $query->where('organizer_id', $queryParams['organizer_id']);
             }
 
-            $events = $query->orderBy('start_date', 'asc')->get();
+            $events = $query->orderBy('start_time', 'asc')->get();
             
             return ResponseHelper::success($response, 'Events fetched successfully', [
                 'events' => $events,
@@ -79,11 +79,16 @@ class EventController
             $data = $request->getParsedBody();
             
             // Validate required fields
-            $requiredFields = ['organizer_id', 'title', 'start_date', 'end_date'];
+            $requiredFields = ['organizer_id', 'title', 'start_time', 'end_time'];
             foreach ($requiredFields as $field) {
                 if (empty($data[$field])) {
                     return ResponseHelper::error($response, "Field '$field' is required", 400);
                 }
+            }
+            
+            // Generate slug if not provided
+            if (empty($data['slug'])) {
+                $data['slug'] = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
             }
             
             // Set default status if not provided
@@ -112,6 +117,11 @@ class EventController
             
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
+            }
+            
+            // Update slug if title changes and slug isn't manually provided
+            if (isset($data['title']) && !isset($data['slug'])) {
+                $data['slug'] = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
             }
             
             $event->update($data);
@@ -158,7 +168,7 @@ class EventController
 
             $events = Event::where('title', 'LIKE', "%{$query}%")
                           ->orWhere('description', 'LIKE', "%{$query}%")
-                          ->orWhere('location', 'LIKE', "%{$query}%")
+                          ->orWhere('venue_name', 'LIKE', "%{$query}%")
                           ->get();
 
             return ResponseHelper::success($response, 'Events found', [

@@ -10,6 +10,8 @@ return function ($app): void {
         '/v1/auth' => ROUTE . 'v1/AuthRoute.php',
         '/v1/organizers' => ROUTE . 'v1/OrganizerRoute.php',
         '/v1/attendees' => ROUTE . 'v1/AttendeeRoute.php',
+        '/v1/events' => ROUTE . 'v1/EventRoute.php',
+        '/v1/event-images' => ROUTE . 'v1/EventImageRoute.php',
         // '/v1/hotels' => ROUTE . 'v1/HotelRoute.php',
         // '/v1/rooms' => ROUTE . 'v1/RoomRoute.php',
         // '/v1/customers' => ROUTE . 'v1/CustomerRoute.php',

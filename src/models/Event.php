@@ -115,6 +115,14 @@ class Event extends Model
         return $this->belongsTo(EventType::class, 'event_type_id');
     }
 
+    /**
+     * Get the event images.
+     */
+    public function images()
+    {
+        return $this->hasMany(EventImage::class, 'event_id');
+    }
+
     /* -----------------------------------------------------------------
      |  Scopes
      | -----------------------------------------------------------------

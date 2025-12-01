@@ -13,10 +13,11 @@ use Illuminate\Database\Eloquent\Model;
  *
  * @property int $id
  * @property int $user_id
- * @property string|null $bio
+ * @property string $first_name
+ * @property string $last_name
+ * @property string $email
+ * @property string|null $phone
  * @property string|null $profile_image
- * @property array|null $interests
- * @property string|null $location
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -55,10 +56,11 @@ class Attendee extends Model
      */
     protected $fillable = [
         'user_id',
-        'bio',
+        'first_name',
+        'last_name',
+        'email',
+        'phone',
         'profile_image',
-        'interests',
-        'location',
     ];
 
     /**
@@ -67,7 +69,6 @@ class Attendee extends Model
      */
     protected $casts = [
         'user_id' => 'integer',
-        'interests' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -100,6 +101,16 @@ class Attendee extends Model
         return static::where('user_id', $userId)->first();
     }
 
+    /**
+     * Find attendee by email.
+     * @param string $email
+     * @return Attendee|null
+     */
+    public static function findByEmail(string $email): ?Attendee
+    {
+        return static::where('email', $email)->first();
+    }
+
     /* -----------------------------------------------------------------
      |  Helper Methods
      | -----------------------------------------------------------------
@@ -115,6 +126,15 @@ class Attendee extends Model
     }
 
     /**
+     * Get full name.
+     * @return string
+     */
+    public function getFullName(): string
+    {
+        return "{$this->first_name} {$this->last_name}";
+    }
+
+    /**
      * Update attendee profile.
      * @param array $data
      * @return bool
@@ -122,10 +142,11 @@ class Attendee extends Model
     public function updateProfile(array $data): bool
     {
         $allowedFields = [
-            'bio',
+            'first_name',
+            'last_name',
+            'email',
+            'phone',
             'profile_image',
-            'interests',
-            'location',
         ];
 
         $updateData = array_intersect_key($data, array_flip($allowedFields));
@@ -168,10 +189,10 @@ class Attendee extends Model
     {
         return [
             'id' => $this->id,
-            'bio' => $this->bio,
+            'first_name' => $this->first_name,
+            'last_name' => $this->last_name,
+            'full_name' => $this->getFullName(),
             'profile_image' => $this->profile_image,
-            'interests' => $this->interests,
-            'location' => $this->location,
             'created_at' => $this->created_at?->toDateTimeString(),
         ];
     }
@@ -183,6 +204,8 @@ class Attendee extends Model
     public function getFullProfile(): array
     {
         $profile = $this->getPublicProfile();
+        $profile['email'] = $this->email;
+        $profile['phone'] = $this->phone;
         
         if ($this->user) {
             $profile['user'] = [
