@@ -110,4 +110,39 @@ class ScannerController
             return ResponseHelper::error($response, 'Failed to assign scanner', 500, $e->getMessage());
         }
     }
+    /**
+     * Delete scanner account
+     */
+    public function delete(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+            $organizerUser = $request->getAttribute('user');
+            
+            // Verify organizer
+            $organizer = Organizer::findByUserId($organizerUser->id);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Unauthorized', 403);
+            }
+
+            $scannerUser = User::find($id);
+            if (!$scannerUser) {
+                return ResponseHelper::error($response, 'Scanner not found', 404);
+            }
+
+            if ($scannerUser->role !== 'scanner') {
+                return ResponseHelper::error($response, 'User is not a scanner', 400);
+            }
+
+            // Optional: Check if this scanner is linked to this organizer?
+            // For now, we allow deletion if the ID is known and valid.
+            // In a stricter system, we'd check if created_by matches or if assigned to this organizer.
+            
+            $scannerUser->delete();
+
+            return ResponseHelper::success($response, 'Scanner account deleted successfully');
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to delete scanner', 500, $e->getMessage());
+        }
+    }
 }

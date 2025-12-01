@@ -17,5 +17,6 @@ return function (App $app): void {
     $app->group('/v1/scanners', function ($group) use ($scannerController) {
         $group->post('', [$scannerController, 'create']);
         $group->post('/assign', [$scannerController, 'assign']);
+        $group->delete('/{id}', [$scannerController, 'delete']);
     })->add($authMiddleware);
 };

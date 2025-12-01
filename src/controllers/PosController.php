@@ -112,4 +112,36 @@ class PosController
             return ResponseHelper::error($response, 'Failed to assign POS', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Delete POS account
+     */
+    public function delete(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+            $organizerUser = $request->getAttribute('user');
+            
+            // Verify organizer
+            $organizer = Organizer::findByUserId($organizerUser->id);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Unauthorized', 403);
+            }
+
+            $posUser = User::find($id);
+            if (!$posUser) {
+                return ResponseHelper::error($response, 'POS user not found', 404);
+            }
+
+            if ($posUser->role !== 'pos') {
+                return ResponseHelper::error($response, 'User is not a POS account', 400);
+            }
+            
+            $posUser->delete();
+
+            return ResponseHelper::success($response, 'POS account deleted successfully');
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to delete POS account', 500, $e->getMessage());
+        }
+    }
 }

@@ -17,5 +17,6 @@ return function (App $app): void {
     $app->group('/v1/pos', function ($group) use ($posController) {
         $group->post('', [$posController, 'create']);
         $group->post('/assign', [$posController, 'assign']);
+        $group->delete('/{id}', [$posController, 'delete']);
     })->add($authMiddleware);
 };

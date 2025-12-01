@@ -1215,6 +1215,93 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Delete Scanner",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{host}}/v1/scanners/2",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"scanners",
+								"2"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Scanner",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{host}}/v1/scanners/2",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"scanners",
+								"2"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Scanner",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{host}}/v1/scanners/2",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"scanners",
+								"2"
+							]
+						}
+					},
+					"response": []
 				}
 			]
 		},
@@ -1241,8 +1328,13 @@
 						},
 						"url": {
 							"raw": "{{host}}/v1/pos",
-							"host": ["{{host}}"],
-							"path": ["v1", "pos"]
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"pos"
+							]
 						}
 					},
 					"response": []
@@ -1267,8 +1359,101 @@
 						},
 						"url": {
 							"raw": "{{host}}/v1/pos/assign",
-							"host": ["{{host}}"],
-							"path": ["v1", "pos", "assign"]
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"pos",
+								"assign"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete POS Account",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{host}}/v1/pos/3",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"pos",
+								"3"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete POS Account",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{host}}/v1/pos/3",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"pos",
+								"3"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete POS Account",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{host}}/v1/pos/3",
+							"host": [
+								"{{host}}"
+							],
+							"path": [
+								"v1",
+								"pos",
+								"3"
+							]
 						}
 					},
 					"response": []
