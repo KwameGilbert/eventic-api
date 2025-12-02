@@ -1,7 +1,5 @@
 vendor
-.env
-
-
 MIGRATION_CHEATSHEET.md
 .gitignore
 README_ORM.md
+.env 

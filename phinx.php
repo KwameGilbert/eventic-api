@@ -27,6 +27,7 @@ return [
             'user' => $_ENV[$prefix . 'USERNAME'],
             'pass' => $_ENV[$prefix . 'PASSWORD'],
             'port' => $_ENV[$prefix . 'PORT'],
+            'sslmode' => $_ENV[$prefix . 'SSL'] ?? 'require',
             'charset' => $_ENV[$prefix . 'CHARSET'] ?? 'utf8mb4',
         ],
         'production' => [
@@ -36,6 +37,7 @@ return [
             'user' => $_ENV[$prefix . 'USERNAME'],
             'pass' => $_ENV[$prefix . 'PASSWORD'],
             'port' => $_ENV[$prefix . 'PORT'],
+            'sslmode' => $_ENV[$prefix . 'SSL'] ?? 'require',
             'charset' => $_ENV[$prefix . 'CHARSET'] ?? 'utf8mb4',
         ]
     ],

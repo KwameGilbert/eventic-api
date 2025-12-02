@@ -143,9 +143,6 @@ class ScannerController
                  return ResponseHelper::error($response, 'Unauthorized: Scanner is not assigned to your organization', 403);
             }
 
-            // Optional: Check if this scanner is linked to this organizer?
-            // For now, we allow deletion if the ID is known and valid.
-            // In a stricter system, we'd check if created_by matches or if assigned to this organizer.
             
             $scannerUser->delete();
 

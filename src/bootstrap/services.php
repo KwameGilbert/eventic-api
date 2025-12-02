@@ -7,6 +7,7 @@
  */
 
 use App\Services\EmailService;
+use App\Services\SMSService;
 use App\Services\AuthService;
 use App\Services\PasswordResetService;
 use App\Services\VerificationService;
@@ -32,6 +33,10 @@ return function ($container) {
     
     $container->set(EmailService::class, function () {
         return new EmailService();
+    });
+
+    $container->set(SMSService::class, function () {
+        return new SMSService();
     });
     
     $container->set(AuthService::class, function () {
