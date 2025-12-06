@@ -11,8 +11,8 @@
     "phinx-create-verbose": "phinx create -vvv",
     "phinx-migrate-verbose": "phinx migrate -vvv",
     "phinx-create-seed": "phinx seed:create",
-    "phinx-seed": "phinx seed",
     "phinx-status": "phinx status",
+    "phinx-run-seed": "phinx seed:run",
     "phinx-rollback": "phinx rollback"
   },
   "autoload": {

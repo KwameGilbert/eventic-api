@@ -1,28 +1,7 @@
--- phpMyAdmin SQL Dump
--- version 5.2.3
--- https://www.phpmyadmin.net/
---
--- Host: localhost
--- Generation Time: Dec 05, 2025 at 11:14 PM
--- Server version: 10.4.32-MariaDB
--- PHP Version: 8.2.12
 
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-START TRANSACTION;
-SET time_zone = "+00:00";
-
---
--- Database: `eventic`
---
-
--- --------------------------------------------------------
-
---
--- Table structure for table `attendees`
---
-
-CREATE TABLE `attendees` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `attendees`;
+CREATE TABLE IF NOT EXISTS `attendees` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) UNSIGNED NOT NULL,
   `first_name` varchar(255) NOT NULL,
   `last_name` varchar(255) NOT NULL,
@@ -30,7 +9,11 @@ CREATE TABLE `attendees` (
   `phone` varchar(255) DEFAULT NULL,
   `profile_image` varchar(255) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  KEY `email` (`email`),
+  KEY `phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -39,14 +22,20 @@ CREATE TABLE `attendees` (
 -- Table structure for table `audit_logs`
 --
 
-CREATE TABLE `audit_logs` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `audit_logs`;
+CREATE TABLE IF NOT EXISTS `audit_logs` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) UNSIGNED DEFAULT NULL,
   `action` varchar(50) NOT NULL,
   `ip_address` varchar(45) NOT NULL,
   `user_agent` text DEFAULT NULL,
   `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`metadata`)),
-  `created_at` timestamp NULL DEFAULT current_timestamp()
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  KEY `action` (`action`),
+  KEY `created_at` (`created_at`),
+  KEY `ip_address` (`ip_address`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -55,8 +44,9 @@ CREATE TABLE `audit_logs` (
 -- Table structure for table `events`
 --
 
-CREATE TABLE `events` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `events`;
+CREATE TABLE IF NOT EXISTS `events` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `organizer_id` int(11) UNSIGNED NOT NULL,
   `title` varchar(255) NOT NULL,
   `slug` varchar(255) NOT NULL,
@@ -69,11 +59,16 @@ CREATE TABLE `events` (
   `start_time` datetime NOT NULL,
   `end_time` datetime NOT NULL,
   `status` enum('draft','pending','published','cancelled') NOT NULL DEFAULT 'draft',
+  `is_featured` tinyint(1) NOT NULL DEFAULT 0,
   `audience` varchar(255) DEFAULT NULL,
   `language` varchar(255) DEFAULT NULL,
   `tags` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`tags`)),
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `event_type_id` (`event_type_id`),
+  KEY `organizer_id` (`organizer_id`),
+  KEY `is_featured` (`is_featured`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -82,12 +77,15 @@ CREATE TABLE `events` (
 -- Table structure for table `event_images`
 --
 
-CREATE TABLE `event_images` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `event_images`;
+CREATE TABLE IF NOT EXISTS `event_images` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `event_id` int(11) UNSIGNED NOT NULL,
   `image_path` varchar(255) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `event_id` (`event_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -96,14 +94,18 @@ CREATE TABLE `event_images` (
 -- Table structure for table `event_reviews`
 --
 
-CREATE TABLE `event_reviews` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `event_reviews`;
+CREATE TABLE IF NOT EXISTS `event_reviews` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `event_id` int(11) UNSIGNED NOT NULL,
   `reviewer_id` int(11) UNSIGNED NOT NULL,
   `rating` int(11) NOT NULL DEFAULT 0,
   `comment` text DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `event_id` (`event_id`),
+  KEY `reviewer_id` (`reviewer_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -112,13 +114,15 @@ CREATE TABLE `event_reviews` (
 -- Table structure for table `event_types`
 --
 
-CREATE TABLE `event_types` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `event_types`;
+CREATE TABLE IF NOT EXISTS `event_types` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
   `slug` varchar(255) NOT NULL,
   `description` text DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -127,11 +131,12 @@ CREATE TABLE `event_types` (
 -- Table structure for table `orders`
 --
 
-CREATE TABLE `orders` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `orders`;
+CREATE TABLE IF NOT EXISTS `orders` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) UNSIGNED NOT NULL,
   `total_amount` decimal(10,2) DEFAULT 0.00,
-  `status` enum('pending','paid','failed','refunded') DEFAULT 'pending',
+  `status` enum('pending','paid','failed','refunded','cancelled') DEFAULT 'pending',
   `payment_reference` varchar(255) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -140,7 +145,9 @@ CREATE TABLE `orders` (
   `customer_email` varchar(255) DEFAULT NULL,
   `customer_name` varchar(255) DEFAULT NULL,
   `customer_phone` varchar(50) DEFAULT NULL,
-  `paid_at` datetime DEFAULT NULL
+  `paid_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -149,8 +156,9 @@ CREATE TABLE `orders` (
 -- Table structure for table `order_items`
 --
 
-CREATE TABLE `order_items` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `order_items`;
+CREATE TABLE IF NOT EXISTS `order_items` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `order_id` int(11) UNSIGNED NOT NULL,
   `event_id` int(11) UNSIGNED NOT NULL,
   `ticket_type_id` int(11) UNSIGNED NOT NULL,
@@ -158,7 +166,11 @@ CREATE TABLE `order_items` (
   `unit_price` decimal(10,2) DEFAULT NULL,
   `total_price` decimal(10,2) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `order_id` (`order_id`),
+  KEY `event_id` (`event_id`),
+  KEY `ticket_type_id` (`ticket_type_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -167,8 +179,9 @@ CREATE TABLE `order_items` (
 -- Table structure for table `organizers`
 --
 
-CREATE TABLE `organizers` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `organizers`;
+CREATE TABLE IF NOT EXISTS `organizers` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) UNSIGNED NOT NULL,
   `organization_name` varchar(255) DEFAULT NULL,
   `bio` text DEFAULT NULL,
@@ -177,7 +190,9 @@ CREATE TABLE `organizers` (
   `social_instagram` varchar(255) DEFAULT NULL,
   `social_twitter` varchar(255) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -186,12 +201,16 @@ CREATE TABLE `organizers` (
 -- Table structure for table `organizer_followers`
 --
 
-CREATE TABLE `organizer_followers` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `organizer_followers`;
+CREATE TABLE IF NOT EXISTS `organizer_followers` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `organizer_id` int(11) UNSIGNED NOT NULL,
   `follower_id` int(11) UNSIGNED NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `organizer_id` (`organizer_id`),
+  KEY `follower_id` (`follower_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -200,10 +219,13 @@ CREATE TABLE `organizer_followers` (
 -- Table structure for table `password_resets`
 --
 
-CREATE TABLE `password_resets` (
+DROP TABLE IF EXISTS `password_resets`;
+CREATE TABLE IF NOT EXISTS `password_resets` (
   `email` varchar(255) NOT NULL,
   `token` varchar(255) NOT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp()
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  KEY `email` (`email`,`token`),
+  KEY `created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -212,8 +234,9 @@ CREATE TABLE `password_resets` (
 -- Table structure for table `payout_requests`
 --
 
-CREATE TABLE `payout_requests` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `payout_requests`;
+CREATE TABLE IF NOT EXISTS `payout_requests` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `organizer_id` int(11) UNSIGNED NOT NULL,
   `event_id` int(11) UNSIGNED NOT NULL,
   `amount` decimal(10,2) DEFAULT 0.00,
@@ -222,7 +245,10 @@ CREATE TABLE `payout_requests` (
   `account_name` varchar(255) NOT NULL,
   `status` enum('pending','processing','completed','rejected') NOT NULL DEFAULT 'pending',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `organizer_id` (`organizer_id`),
+  KEY `event_id` (`event_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -231,12 +257,14 @@ CREATE TABLE `payout_requests` (
 -- Table structure for table `phinxlog`
 --
 
-CREATE TABLE `phinxlog` (
+DROP TABLE IF EXISTS `phinxlog`;
+CREATE TABLE IF NOT EXISTS `phinxlog` (
   `version` bigint(20) NOT NULL,
   `migration_name` varchar(100) DEFAULT NULL,
   `start_time` timestamp NULL DEFAULT NULL,
   `end_time` timestamp NULL DEFAULT NULL,
-  `breakpoint` tinyint(1) NOT NULL DEFAULT 0
+  `breakpoint` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -245,13 +273,15 @@ CREATE TABLE `phinxlog` (
 -- Table structure for table `pos_assignments`
 --
 
-CREATE TABLE `pos_assignments` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `pos_assignments`;
+CREATE TABLE IF NOT EXISTS `pos_assignments` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) DEFAULT NULL,
   `event_id` int(11) DEFAULT NULL,
   `organizer_id` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -260,8 +290,9 @@ CREATE TABLE `pos_assignments` (
 -- Table structure for table `refresh_tokens`
 --
 
-CREATE TABLE `refresh_tokens` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `refresh_tokens`;
+CREATE TABLE IF NOT EXISTS `refresh_tokens` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) UNSIGNED NOT NULL,
   `token_hash` varchar(255) NOT NULL,
   `device_name` varchar(255) DEFAULT NULL,
@@ -271,7 +302,12 @@ CREATE TABLE `refresh_tokens` (
   `revoked` tinyint(1) DEFAULT 0,
   `revoked_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `token_hash` (`token_hash`),
+  KEY `user_id` (`user_id`),
+  KEY `expires_at` (`expires_at`),
+  KEY `revoked` (`revoked`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -280,12 +316,17 @@ CREATE TABLE `refresh_tokens` (
 -- Table structure for table `scanner_assignments`
 --
 
-CREATE TABLE `scanner_assignments` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `scanner_assignments`;
+CREATE TABLE IF NOT EXISTS `scanner_assignments` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` int(11) UNSIGNED NOT NULL,
   `event_id` int(11) UNSIGNED NOT NULL,
   `organizer_id` int(11) UNSIGNED NOT NULL,
-  `created_at` timestamp NULL DEFAULT current_timestamp()
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  KEY `event_id` (`event_id`),
+  KEY `organizer_id` (`organizer_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -294,8 +335,9 @@ CREATE TABLE `scanner_assignments` (
 -- Table structure for table `tickets`
 --
 
-CREATE TABLE `tickets` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `tickets`;
+CREATE TABLE IF NOT EXISTS `tickets` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `order_id` int(11) UNSIGNED NOT NULL,
   `event_id` int(11) UNSIGNED NOT NULL,
   `ticket_type_id` int(11) UNSIGNED NOT NULL,
@@ -305,7 +347,14 @@ CREATE TABLE `tickets` (
   `admitted_at` timestamp NULL DEFAULT NULL,
   `attendee_id` int(11) UNSIGNED DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ticket_code` (`ticket_code`),
+  KEY `order_id` (`order_id`),
+  KEY `event_id` (`event_id`),
+  KEY `ticket_type_id` (`ticket_type_id`),
+  KEY `attendee_id` (`attendee_id`),
+  KEY `admitted_by` (`admitted_by`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -314,8 +363,9 @@ CREATE TABLE `tickets` (
 -- Table structure for table `ticket_types`
 --
 
-CREATE TABLE `ticket_types` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `ticket_types`;
+CREATE TABLE IF NOT EXISTS `ticket_types` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `event_id` int(11) UNSIGNED NOT NULL,
   `organizer_id` int(11) UNSIGNED NOT NULL,
   `name` varchar(255) NOT NULL,
@@ -329,7 +379,12 @@ CREATE TABLE `ticket_types` (
   `ticket_image` varchar(255) DEFAULT NULL,
   `status` enum('active','deactivated') NOT NULL DEFAULT 'active',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `event_id` (`event_id`),
+  KEY `organizer_id` (`organizer_id`),
+  KEY `sale_start` (`sale_start`),
+  KEY `sale_end` (`sale_end`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -338,8 +393,9 @@ CREATE TABLE `ticket_types` (
 -- Table structure for table `users`
 --
 
-CREATE TABLE `users` (
-  `id` int(11) UNSIGNED NOT NULL,
+DROP TABLE IF EXISTS `users`;
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
   `email` varchar(255) NOT NULL,
   `phone` varchar(255) DEFAULT NULL,
@@ -353,273 +409,11 @@ CREATE TABLE `users` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `last_login_at` timestamp NULL DEFAULT NULL,
-  `last_login_ip` varchar(45) DEFAULT NULL
+  `last_login_ip` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `email` (`email`),
+  KEY `phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `attendees`
---
-ALTER TABLE `attendees`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `email` (`email`),
-  ADD KEY `phone` (`phone`);
-
---
--- Indexes for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `action` (`action`),
-  ADD KEY `created_at` (`created_at`),
-  ADD KEY `ip_address` (`ip_address`);
-
---
--- Indexes for table `events`
---
-ALTER TABLE `events`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `event_type_id` (`event_type_id`),
-  ADD KEY `organizer_id` (`organizer_id`);
-
---
--- Indexes for table `event_images`
---
-ALTER TABLE `event_images`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `event_id` (`event_id`);
-
---
--- Indexes for table `event_reviews`
---
-ALTER TABLE `event_reviews`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `reviewer_id` (`reviewer_id`);
-
---
--- Indexes for table `event_types`
---
-ALTER TABLE `event_types`
-  ADD PRIMARY KEY (`id`);
-
---
--- Indexes for table `orders`
---
-ALTER TABLE `orders`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `user_id` (`user_id`);
-
---
--- Indexes for table `order_items`
---
-ALTER TABLE `order_items`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `order_id` (`order_id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `ticket_type_id` (`ticket_type_id`);
-
---
--- Indexes for table `organizers`
---
-ALTER TABLE `organizers`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `user_id` (`user_id`);
-
---
--- Indexes for table `organizer_followers`
---
-ALTER TABLE `organizer_followers`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `organizer_id` (`organizer_id`),
-  ADD KEY `follower_id` (`follower_id`);
-
---
--- Indexes for table `password_resets`
---
-ALTER TABLE `password_resets`
-  ADD KEY `email` (`email`,`token`),
-  ADD KEY `created_at` (`created_at`);
-
---
--- Indexes for table `payout_requests`
---
-ALTER TABLE `payout_requests`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `organizer_id` (`organizer_id`),
-  ADD KEY `event_id` (`event_id`);
-
---
--- Indexes for table `phinxlog`
---
-ALTER TABLE `phinxlog`
-  ADD PRIMARY KEY (`version`);
-
---
--- Indexes for table `pos_assignments`
---
-ALTER TABLE `pos_assignments`
-  ADD PRIMARY KEY (`id`);
-
---
--- Indexes for table `refresh_tokens`
---
-ALTER TABLE `refresh_tokens`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `token_hash` (`token_hash`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `expires_at` (`expires_at`),
-  ADD KEY `revoked` (`revoked`);
-
---
--- Indexes for table `scanner_assignments`
---
-ALTER TABLE `scanner_assignments`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `organizer_id` (`organizer_id`);
-
---
--- Indexes for table `tickets`
---
-ALTER TABLE `tickets`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `ticket_code` (`ticket_code`),
-  ADD KEY `order_id` (`order_id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `ticket_type_id` (`ticket_type_id`),
-  ADD KEY `attendee_id` (`attendee_id`),
-  ADD KEY `admitted_by` (`admitted_by`);
-
---
--- Indexes for table `ticket_types`
---
-ALTER TABLE `ticket_types`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `organizer_id` (`organizer_id`),
-  ADD KEY `sale_start` (`sale_start`),
-  ADD KEY `sale_end` (`sale_end`);
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `email` (`email`),
-  ADD KEY `phone` (`phone`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `attendees`
---
-ALTER TABLE `attendees`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `audit_logs`
---
-ALTER TABLE `audit_logs`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `events`
---
-ALTER TABLE `events`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `event_images`
---
-ALTER TABLE `event_images`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `event_reviews`
---
-ALTER TABLE `event_reviews`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `event_types`
---
-ALTER TABLE `event_types`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `orders`
---
-ALTER TABLE `orders`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `order_items`
---
-ALTER TABLE `order_items`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `organizers`
---
-ALTER TABLE `organizers`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `organizer_followers`
---
-ALTER TABLE `organizer_followers`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `payout_requests`
---
-ALTER TABLE `payout_requests`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `pos_assignments`
---
-ALTER TABLE `pos_assignments`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `refresh_tokens`
---
-ALTER TABLE `refresh_tokens`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `scanner_assignments`
---
-ALTER TABLE `scanner_assignments`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `tickets`
---
-ALTER TABLE `tickets`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `ticket_types`
---
-ALTER TABLE `ticket_types`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `users`
---
-ALTER TABLE `users`
-  MODIFY `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- Constraints for dumped tables

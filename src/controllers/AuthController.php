@@ -242,6 +242,69 @@ class AuthController
     }
 
     /**
+     * Change password for authenticated user
+     * POST /auth/password/change
+     */
+    public function changePassword(Request $request, Response $response): Response
+    {
+        try {
+            // User data is added by AuthMiddleware
+            $jwtUser = $request->getAttribute('user');
+
+            if (!$jwtUser || !isset($jwtUser->id)) {
+                return ResponseHelper::error($response, 'User not authenticated', 401);
+            }
+
+            $data = $request->getParsedBody();
+            $metadata = $this->getRequestMetadata($request);
+
+            // Validation
+            if (empty($data['current_password'])) {
+                return ResponseHelper::error($response, 'Current password is required', 400);
+            }
+            if (empty($data['new_password'])) {
+                return ResponseHelper::error($response, 'New password is required', 400);
+            }
+            if (strlen($data['new_password']) < 8) {
+                return ResponseHelper::error($response, 'New password must be at least 8 characters', 400);
+            }
+
+            // Fetch user from database
+            $user = User::find($jwtUser->id);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Verify current password
+            if (!$this->authService->verifyPassword($data['current_password'], $user->password)) {
+                $this->authService->logAuditEvent($user->id, 'password_change_failed', array_merge($metadata, [
+                    'extra' => ['reason' => 'invalid_current_password']
+                ]));
+                return ResponseHelper::error($response, 'Current password is incorrect', 400);
+            }
+
+            // Update password
+            $user->update([
+                'password' => $this->authService->hashPassword($data['new_password'])
+            ]);
+
+            // Log password change event
+            $this->authService->logAuditEvent($user->id, 'password_changed', $metadata);
+
+            // Optionally revoke all other refresh tokens for security
+            if (!empty($data['logout_other_devices'])) {
+                $this->authService->revokeAllUserTokens($user->id);
+            }
+
+            return ResponseHelper::success($response, 'Password changed successfully', [], 200);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to change password', 500, $e->getMessage());
+        }
+    }
+
+    /**
      * Logout (Revoke refresh token)
      * POST /auth/logout
      */
@@ -253,7 +316,7 @@ class AuthController
             if (!empty($data['refresh_token'])) {
                 $this->authService->revokeRefreshToken($data['refresh_token']);
             }
-            
+
             return ResponseHelper::success($response, 'Logged out successfully', [], 200);
         } catch (Exception $e) {
             // Even if revocation fails, we return success to the client
@@ -280,13 +343,15 @@ class AuthController
             $errors['password'] = 'Password must be at least 8 characters';
         }
 
-        if (isset($data['role']) && !in_array($data['role'], [
-            User::ROLE_ADMIN, 
-            User::ROLE_ORGANIZER, 
-            User::ROLE_ATTENDEE, 
-            User::ROLE_POS, 
-            User::ROLE_SCANNER
-        ])) {
+        if (
+            isset($data['role']) && !in_array($data['role'], [
+                User::ROLE_ADMIN,
+                User::ROLE_ORGANIZER,
+                User::ROLE_ATTENDEE,
+                User::ROLE_POS,
+                User::ROLE_SCANNER
+            ])
+        ) {
             $errors['role'] = 'Invalid role';
         }
 
@@ -299,7 +364,7 @@ class AuthController
     private function getRequestMetadata(Request $request): array
     {
         $serverParams = $request->getServerParams();
-        
+
         return [
             'ip_address' => $serverParams['REMOTE_ADDR'] ?? null,
             'user_agent' => $request->getHeaderLine('User-Agent'),

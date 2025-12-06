@@ -60,6 +60,7 @@ class Attendee extends Model
         'last_name',
         'email',
         'phone',
+        'bio',
         'profile_image',
     ];
 
@@ -146,11 +147,12 @@ class Attendee extends Model
             'last_name',
             'email',
             'phone',
+            'bio',
             'profile_image',
         ];
 
         $updateData = array_intersect_key($data, array_flip($allowedFields));
-        
+
         return $this->update($updateData);
     }
 
@@ -192,6 +194,7 @@ class Attendee extends Model
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'full_name' => $this->getFullName(),
+            'bio' => $this->bio,
             'profile_image' => $this->profile_image,
             'created_at' => $this->created_at?->toDateTimeString(),
         ];
@@ -206,7 +209,7 @@ class Attendee extends Model
         $profile = $this->getPublicProfile();
         $profile['email'] = $this->email;
         $profile['phone'] = $this->phone;
-        
+
         if ($this->user) {
             $profile['user'] = [
                 'id' => $this->user->id,
