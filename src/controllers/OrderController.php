@@ -262,7 +262,9 @@ class OrderController
             curl_close($ch);
 
             if ($err) {
-                return ResponseHelper::error($response, 'Payment verification failed', 500);
+                
+                return ResponseHelper::error($response, 'Payment verification failed', 500, $err);
+
             }
 
             $paystackResponse = json_decode($result, true);
@@ -465,7 +467,8 @@ class OrderController
             $orders = Order::where('user_id', $user->id)
                 ->with(['items.ticketType.event', 'tickets'])
                 ->orderBy('created_at', 'desc')
-                ->get();
+                ->get()
+                ->toArray();
             
             return ResponseHelper::success($response, 'Orders fetched successfully', $orders);
         } catch (Exception $e) {
@@ -490,9 +493,64 @@ class OrderController
                 return ResponseHelper::error($response, 'Order not found', 404);
             }
             
-            return ResponseHelper::success($response, 'Order fetched successfully', $order);
+            return ResponseHelper::success($response, 'Order fetched successfully', $order->toArray());
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch order', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Cancel a pending order
+     * POST /v1/orders/{id}/cancel
+     */
+    public function cancel(Request $request, Response $response, array $args): Response
+    {
+        DB::beginTransaction();
+        try {
+            $tokenUser = $request->getAttribute('user');
+            $orderId = $args['id'];
+            
+            // Fetch full user
+            $user = User::find($tokenUser->id);
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 401);
+            }
+            
+            $order = Order::where('id', $orderId)
+                ->where('user_id', $user->id)
+                ->first();
+            
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found', 404);
+            }
+            
+            // Only pending orders can be cancelled
+            if ($order->status !== Order::STATUS_PENDING) {
+                return ResponseHelper::error($response, 'Only pending orders can be cancelled', 400);
+            }
+            
+            // Restore ticket quantities
+            $orderItems = OrderItem::where('order_id', $order->id)->get();
+            foreach ($orderItems as $item) {
+                $ticketType = TicketType::find($item->ticket_type_id);
+                if ($ticketType) {
+                    $ticketType->increment('remaining', $item->quantity);
+                }
+            }
+            
+            // Update order status to cancelled
+            $order->update(['status' => Order::STATUS_CANCELLED]);
+            
+            DB::commit();
+            
+            return ResponseHelper::success($response, 'Order cancelled successfully', [
+                'order_id' => $order->id,
+                'status' => 'cancelled',
+            ]);
+            
+        } catch (Exception $e) {
+            DB::rollBack();
+            return ResponseHelper::error($response, 'Failed to cancel order', 500, $e->getMessage());
         }
     }
 }

@@ -20,6 +20,7 @@ return function (App $app): void {
         $group->get('/{id}', [$orderController, 'show']);
         $group->post('/{id}/pay', [$orderController, 'initializePayment']);
         $group->get('/{id}/verify', [$orderController, 'verifyPayment']);
+        $group->post('/{id}/cancel', [$orderController, 'cancel']);
     })->add($authMiddleware);
 
     // Public Paystack Webhook (no auth required - verified by signature)
