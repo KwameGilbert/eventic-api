@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Ticket;
 use App\Models\TicketType;
+use App\Models\User;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -36,7 +37,15 @@ class OrderController
         DB::beginTransaction();
         try {
             $data = $request->getParsedBody();
-            $user = $request->getAttribute('user');
+            $tokenUser = $request->getAttribute('user');
+            
+            // Fetch full user data from database (JWT only contains id, email, role, status)
+            $user = User::find($tokenUser->id);
+            
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 401);
+            }
+            
             $isPos = $user->role === 'pos';
 
             if (empty($data['items']) || !is_array($data['items'])) {

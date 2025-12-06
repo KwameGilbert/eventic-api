@@ -92,11 +92,23 @@ class AuthService
     public function validateToken(string $token): ?object
     {
         try {
+            error_log('JWT Validation: Attempting to decode token');
+            error_log('JWT Secret (first 6 chars): ' . substr($this->jwtSecret, 0, 6));
+            error_log('JWT Algorithm: ' . $this->jwtAlgorithm);
+            error_log('Token length: ' . strlen($token));
+            
             $decoded = JWT::decode($token, new Key($this->jwtSecret, $this->jwtAlgorithm));
+            
             return $decoded;
+        } catch (\Firebase\JWT\ExpiredException $e) {
+            error_log('JWT Validation Error: Token has EXPIRED - ' . $e->getMessage());
+            return null;
+        } catch (\Firebase\JWT\SignatureInvalidException $e) {
+            error_log('JWT Validation Error: SIGNATURE INVALID (secret mismatch?) - ' . $e->getMessage());
+            return null;
         } catch (Exception $e) {
             // Token is invalid, expired, or malformed
-            error_log('JWT Validation Error: ' . $e->getMessage());
+            error_log('JWT Validation Error: ' . get_class($e) . ' - ' . $e->getMessage());
             return null;
         }
     }
@@ -151,13 +163,27 @@ class AuthService
     /**
      * Generate user payload for JWT
      *
-     * @param object $user User object/array
+     * @param object|array $user User object/array
      * @return array User data for token
      */
     public function generateUserPayload($user): array
     {
-        // Convert to array if it's an object
-        $userData = is_object($user) ? (array)$user : $user;
+        // Handle Eloquent model - use toArray() method instead of (array) cast
+        if (is_object($user)) {
+            if (method_exists($user, 'toArray')) {
+                $userData = $user->toArray();
+            } else {
+                // Fallback: access properties directly
+                $userData = [
+                    'id' => $user->id ?? null,
+                    'email' => $user->email ?? null,
+                    'role' => $user->role ?? 'attendee',
+                    'status' => $user->status ?? 'active',
+                ];
+            }
+        } else {
+            $userData = $user;
+        }
 
         return [
             'id' => $userData['id'] ?? null,
