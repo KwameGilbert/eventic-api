@@ -18,7 +18,8 @@ class ResponseHelper
      */
     public static function jsonResponse(Response $response, $data, int $status = 200): Response
     {
-        $response->getBody()->write(json_encode($data));
+        $json = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $response->getBody()->write($json);
         return $response
             ->withHeader('Content-Type', 'application/json')
             ->withStatus($status);

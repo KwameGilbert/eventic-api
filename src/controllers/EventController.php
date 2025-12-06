@@ -21,16 +21,20 @@ class EventController
 {
     /**
      * Get all events (with optional filtering)
+     * GET /v1/events
      */
     public function index(Request $request, Response $response, array $args): Response
     {
         try {
             $queryParams = $request->getQueryParams();
-            $query = Event::query();
+            $query = Event::with(['ticketTypes', 'eventType', 'organizer.user', 'images']);
 
-            // Filter by status (default to published if not specified for public list)
+            // Filter by status (default to published for public list)
             if (isset($queryParams['status'])) {
                 $query->where('status', $queryParams['status']);
+            } else {
+                // Default to published events for public endpoint
+                $query->where('status', Event::STATUS_PUBLISHED);
             }
 
             // Filter by event type
@@ -43,11 +47,56 @@ class EventController
                 $query->where('organizer_id', $queryParams['organizer_id']);
             }
 
-            $events = $query->orderBy('start_time', 'asc')->get();
+            // Filter by category slug
+            if (isset($queryParams['category'])) {
+                $query->whereHas('eventType', function ($q) use ($queryParams) {
+                    $q->where('slug', $queryParams['category']);
+                });
+            }
+
+            // Filter upcoming only
+            if (isset($queryParams['upcoming']) && $queryParams['upcoming'] === 'true') {
+                $query->where('start_time', '>', \Illuminate\Support\Carbon::now());
+            }
+
+            // Search by title, description, or venue
+            if (isset($queryParams['search']) && !empty($queryParams['search'])) {
+                $search = $queryParams['search'];
+                $query->where(function ($q) use ($search) {
+                    $q->where('title', 'LIKE', "%{$search}%")
+                      ->orWhere('description', 'LIKE', "%{$search}%")
+                      ->orWhere('venue_name', 'LIKE', "%{$search}%");
+                });
+            }
+
+            // Location filter
+            if (isset($queryParams['location']) && !empty($queryParams['location'])) {
+                $query->where('address', 'LIKE', "%{$queryParams['location']}%");
+            }
+
+            // Pagination
+            $page = (int)($queryParams['page'] ?? 1);
+            $perPage = (int)($queryParams['per_page'] ?? 20);
+            $offset = ($page - 1) * $perPage;
+
+            $totalCount = $query->count();
+            $events = $query->orderBy('start_time', 'asc')
+                           ->offset($offset)
+                           ->limit($perPage)
+                           ->get();
+
+            // Format events for frontend compatibility
+            $formattedEvents = $events->map(function ($event) {
+                return $event->getFullDetails();
+            });
             
             return ResponseHelper::success($response, 'Events fetched successfully', [
-                'events' => $events,
-                'count' => $events->count()
+                'events' => $formattedEvents->toArray(),
+                'count' => $events->count(),
+                'total' => $totalCount,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total_pages' => ceil($totalCount / $perPage),
             ]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch events', 500, $e->getMessage());
@@ -55,13 +104,70 @@ class EventController
     }
 
     /**
-     * Get single event by ID
+     * Get featured events for homepage carousel
+     * GET /v1/events/featured
+     */
+    public function featured(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $queryParams = $request->getQueryParams();
+            $limit = (int)($queryParams['limit'] ?? 5);
+
+            // First try to get featured events
+            $events = Event::with(['ticketTypes', 'eventType', 'organizer.user'])
+                ->where('status', Event::STATUS_PUBLISHED)
+                ->where('is_featured', true)
+                ->where('start_time', '>', \Illuminate\Support\Carbon::now())
+                ->orderBy('start_time', 'asc')
+                ->limit($limit)
+                ->get();
+
+            // If no featured events, fallback to upcoming events
+            if ($events->isEmpty()) {
+                $events = Event::with(['ticketTypes', 'eventType', 'organizer.user'])
+                    ->where('status', Event::STATUS_PUBLISHED)
+                    ->where('start_time', '>', \Illuminate\Support\Carbon::now())
+                    ->orderBy('start_time', 'asc')
+                    ->limit($limit)
+                    ->get();
+            }
+
+            // Format for frontend carousel
+            $formattedEvents = $events->map(function ($event) {
+                return [
+                    'id' => $event->id,
+                    'title' => $event->title,
+                    'eventSlug' => $event->slug,
+                    'venue' => $event->venue_name . ($event->address ? ', ' . $event->address : ''),
+                    'date' => $event->start_time ? $event->start_time->format('D d M Y, g:i A') : null,
+                    'image' => $event->banner_image,
+                    'category' => $event->eventType ? $event->eventType->name : null,
+                ];
+            });
+
+            return ResponseHelper::success($response, 'Featured events fetched successfully', $formattedEvents->toArray());
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch featured events', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single event by ID or slug
+     * GET /v1/events/{id}
      */
     public function show(Request $request, Response $response, array $args): Response
     {
         try {
-            $id = $args['id'];
-            $event = Event::with('organizer')->find($id);
+            $identifier = $args['id'];
+            
+            // Try to find by ID first, then by slug
+            if (is_numeric($identifier)) {
+                $event = Event::with(['organizer.user', 'ticketTypes', 'images', 'eventType'])->find($identifier);
+            } else {
+                $event = Event::with(['organizer.user', 'ticketTypes', 'images', 'eventType'])
+                    ->where('slug', $identifier)
+                    ->first();
+            }
             
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
@@ -75,14 +181,27 @@ class EventController
 
     /**
      * Create new event
+     * POST /v1/events
      */
     public function create(Request $request, Response $response, array $args): Response
     {
         try {
             $data = $request->getParsedBody();
+            $user = $request->getAttribute('user');
+            
+            // Get organizer for the user
+            $organizer = Organizer::where('user_id', $user->id)->first();
+            if (!$organizer && $user->role !== 'admin') {
+                return ResponseHelper::error($response, 'Only organizers can create events', 403);
+            }
+
+            // Set organizer_id from authenticated user's organizer profile
+            if ($organizer) {
+                $data['organizer_id'] = $organizer->id;
+            }
             
             // Validate required fields
-            $requiredFields = ['organizer_id', 'title', 'start_time', 'end_time'];
+            $requiredFields = ['title', 'start_time', 'end_time'];
             foreach ($requiredFields as $field) {
                 if (empty($data[$field])) {
                     return ResponseHelper::error($response, "Field '$field' is required", 400);
@@ -106,7 +225,7 @@ class EventController
             
             $event = Event::create($data);
             
-            return ResponseHelper::success($response, 'Event created successfully', $event->toArray(), 201);
+            return ResponseHelper::success($response, 'Event created successfully', $event->getFullDetails(), 201);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to create event', 500, $e->getMessage());
         }
@@ -114,6 +233,7 @@ class EventController
 
     /**
      * Update event
+     * PUT /v1/events/{id}
      */
     public function update(Request $request, Response $response, array $args): Response
     {
@@ -148,7 +268,7 @@ class EventController
             
             $event->update($data);
             
-            return ResponseHelper::success($response, 'Event updated successfully', $event->toArray());
+            return ResponseHelper::success($response, 'Event updated successfully', $event->getFullDetails());
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to update event', 500, $e->getMessage());
         }
@@ -156,6 +276,7 @@ class EventController
 
     /**
      * Delete event
+     * DELETE /v1/events/{id}
      */
     public function delete(Request $request, Response $response, array $args): Response
     {
@@ -196,6 +317,7 @@ class EventController
 
     /**
      * Search events
+     * GET /v1/events/search
      */
     public function search(Request $request, Response $response, array $args): Response
     {
@@ -207,13 +329,21 @@ class EventController
                 return ResponseHelper::error($response, 'Search query is required', 400);
             }
 
-            $events = Event::where('title', 'LIKE', "%{$query}%")
-                          ->orWhere('description', 'LIKE', "%{$query}%")
-                          ->orWhere('venue_name', 'LIKE', "%{$query}%")
-                          ->get();
+            $events = Event::with(['ticketTypes', 'eventType', 'organizer.user'])
+                ->where('status', Event::STATUS_PUBLISHED)
+                ->where(function ($q) use ($query) {
+                    $q->where('title', 'LIKE', "%{$query}%")
+                      ->orWhere('description', 'LIKE', "%{$query}%")
+                      ->orWhere('venue_name', 'LIKE', "%{$query}%");
+                })
+                ->get();
+
+            $formattedEvents = $events->map(function ($event) {
+                return $event->getFullDetails();
+            });
 
             return ResponseHelper::success($response, 'Events found', [
-                'events' => $events,
+                'events' => $formattedEvents->toArray(),
                 'count' => $events->count()
             ]);
         } catch (Exception $e) {

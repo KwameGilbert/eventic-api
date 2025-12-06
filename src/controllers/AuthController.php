@@ -156,6 +156,8 @@ class AuthController
             // Log successful login event
             $this->authService->logAuditEvent($user->id, 'login', $metadata);
 
+            $tokenExpiry = $this->authService->getTokenExpiry();
+
             return ResponseHelper::success($response, 'Login successful', [
                 'user' => [
                     'id' => $user->id,
@@ -166,8 +168,8 @@ class AuthController
                 ],
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken,
+                'expires_in' => $tokenExpiry,
                 'token_type' => 'Bearer',
-                'expires_in' => $this->authService->getTokenExpiry()
             ], 200);
 
         } catch (Exception $e) {

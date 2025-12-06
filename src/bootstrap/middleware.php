@@ -87,7 +87,7 @@ return function ($app, $container, $config) {
     
     // ==================== CONTENT LENGTH ====================
     
-    $app->add(new ContentLengthMiddleware());
+    // $app->add(new ContentLengthMiddleware());
     
     return $app;
 };

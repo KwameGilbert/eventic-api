@@ -17,8 +17,11 @@ return function (App $app): void {
     $app->group('/v1/orders', function ($group) use ($orderController) {
         $group->post('', [$orderController, 'create']);
         $group->get('', [$orderController, 'index']);
+        $group->get('/{id}', [$orderController, 'show']);
+        $group->post('/{id}/pay', [$orderController, 'initializePayment']);
+        $group->get('/{id}/verify', [$orderController, 'verifyPayment']);
     })->add($authMiddleware);
 
-    // Public Webhook
-    $app->post('/v1/payment/webhook', [$orderController, 'mockPaymentWebhook']);
+    // Public Paystack Webhook (no auth required - verified by signature)
+    $app->post('/v1/payment/webhook', [$orderController, 'paystackWebhook']);
 };

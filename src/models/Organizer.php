@@ -88,6 +88,14 @@ class Organizer extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    /**
+     * Get the events for this organizer.
+     */
+    public function events()
+    {
+        return $this->hasMany(Event::class, 'organizer_id');
+    }
+
     /* -----------------------------------------------------------------
      |  Static Search Methods
      | -----------------------------------------------------------------

@@ -90,7 +90,7 @@ class TicketType extends Model
      */
     public function isAvailable(): bool
     {
-        $now = now();
+        $now = \Illuminate\Support\Carbon::now();
         return $this->status === self::STATUS_ACTIVE 
             && $this->remaining > 0
             && ($this->sale_start === null || $this->sale_start <= $now)

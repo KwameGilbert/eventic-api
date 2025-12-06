@@ -82,6 +82,7 @@ class Event extends Model
         'start_time',
         'end_time',
         'status',
+        'is_featured',
         'audience',
         'language',
         'tags',
@@ -97,6 +98,7 @@ class Event extends Model
         'start_time' => 'datetime',
         'end_time' => 'datetime',
         'tags' => 'array',
+        'is_featured' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -130,6 +132,30 @@ class Event extends Model
         return $this->hasMany(EventImage::class, 'event_id');
     }
 
+    /**
+     * Get the ticket types for this event.
+     */
+    public function ticketTypes()
+    {
+        return $this->hasMany(TicketType::class, 'event_id');
+    }
+
+    /**
+     * Get the reviews for this event.
+     */
+    public function reviews()
+    {
+        return $this->hasMany(EventReview::class, 'event_id');
+    }
+
+    /**
+     * Get the tickets for this event.
+     */
+    public function tickets()
+    {
+        return $this->hasMany(Ticket::class, 'event_id');
+    }
+
     /* -----------------------------------------------------------------
      |  Scopes
      | -----------------------------------------------------------------
@@ -144,11 +170,19 @@ class Event extends Model
     }
 
     /**
+     * Scope to get featured events.
+     */
+    public function scopeFeatured($query)
+    {
+        return $query->where('is_featured', true);
+    }
+
+    /**
      * Scope to get upcoming events.
      */
     public function scopeUpcoming($query)
     {
-        return $query->where('start_time', '>', now());
+        return $query->where('start_time', '>', \Illuminate\Support\Carbon::now());
     }
 
     /* -----------------------------------------------------------------
@@ -165,16 +199,105 @@ class Event extends Model
     }
 
     /**
-     * Get event details with organizer info.
+     * Get formatted price from lowest ticket type
+     */
+    public function getLowestPrice(): ?float
+    {
+        $lowestTicket = $this->ticketTypes()
+            ->where('status', TicketType::STATUS_ACTIVE)
+            ->orderBy('price', 'asc')
+            ->first();
+        
+        return $lowestTicket ? (float)$lowestTicket->price : null;
+    }
+
+    /**
+     * Get event details formatted for frontend (matching mock data structure)
      */
     public function getFullDetails(): array
     {
-        $details = $this->toArray();
+        // Load relationships
+        $this->load(['organizer.user', 'ticketTypes', 'images', 'eventType']);
         
+        $details = [
+            'id' => $this->id,
+            'title' => $this->title,
+            'eventSlug' => $this->slug,
+            'description' => $this->description,
+            'venue' => $this->venue_name,
+            'location' => $this->address,
+            'country' => '', // Could be extracted from address if stored
+            'date' => $this->start_time ? $this->start_time->format('Y-m-d') : null,
+            'time' => $this->start_time ? $this->start_time->format('g:i A') : null,
+            'price' => $this->getLowestPrice() ? 'GH₵' . number_format($this->getLowestPrice(), 2) : 'Free',
+            'numericPrice' => $this->getLowestPrice() ?? 0,
+            'category' => $this->eventType ? $this->eventType->name : null,
+            'slug' => $this->eventType ? $this->eventType->slug : null,
+            'audience' => $this->audience,
+            'isOnline' => false,
+            'image' => $this->banner_image,
+            'mapUrl' => $this->map_url,
+            'tags' => $this->tags ?? [],
+            'ticketTypes' => $this->ticketTypes->map(function ($tt) {
+                return [
+                    'id' => $tt->id,
+                    'name' => $tt->name,
+                    'price' => (float)$tt->price,
+                    'originalPrice' => null, // Could add a original_price field if needed
+                    'available' => $tt->isAvailable(),
+                    'availableQuantity' => $tt->remaining,
+                    'maxPerAttendee' => $tt->max_per_user,
+                    'description' => null, // Could add description field to ticket_types
+                ];
+            })->toArray(),
+            'organizer' => null,
+            'contact' => null,
+            'socialMedia' => null,
+            'start_time' => $this->start_time,
+            'end_time' => $this->end_time,
+            'status' => $this->status,
+        ];
+
+        // Add organizer info if available
         if ($this->organizer) {
-            $details['organizer'] = $this->organizer->getPublicProfile();
+            $details['organizer'] = [
+                'id' => $this->organizer->id,
+                'name' => $this->organizer->organization_name ?? ($this->organizer->user->name ?? 'Organizer'),
+                'avatar' => $this->organizer->profile_image ?? 'https://ui-avatars.com/api/?name=' . urlencode($this->organizer->organization_name ?? 'Org'),
+                'bio' => $this->organizer->bio,
+                'verified' => true,
+                'followers' => 0, // Could add followers count
+                'eventsOrganized' => $this->organizer->events()->count(),
+                'rating' => 4.5, // Could calculate from reviews
+            ];
+        }
+
+        // Add images if available
+        if ($this->images->count() > 0) {
+            $details['images'] = $this->images->pluck('image_path')->toArray();
         }
 
         return $details;
+    }
+
+    /**
+     * Get summary for list views (less data than full details)
+     */
+    public function getSummary(): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'eventSlug' => $this->slug,
+            'venue' => $this->venue_name,
+            'location' => $this->address,
+            'date' => $this->start_time ? $this->start_time->format('Y-m-d') : null,
+            'time' => $this->start_time ? $this->start_time->format('g:i A') : null,
+            'price' => $this->getLowestPrice() ? 'GH₵' . number_format($this->getLowestPrice(), 2) : 'Free',
+            'numericPrice' => $this->getLowestPrice() ?? 0,
+            'category' => $this->eventType ? $this->eventType->name : null,
+            'image' => $this->banner_image,
+            'status' => $this->status,
+        ];
     }
 }

@@ -16,19 +16,27 @@ use Exception;
 
 /**
  * OrderController
- * Handles order creation and payment processing
+ * Handles order creation, payment processing, and Paystack webhook verification
  */
 class OrderController
 {
+    private string $paystackSecretKey;
+
+    public function __construct()
+    {
+        $this->paystackSecretKey = $_ENV['PAYSTACK_SECRET_KEY'] ?? '';
+    }
+
     /**
      * Create a new order
+     * POST /v1/orders
      */
     public function create(Request $request, Response $response, array $args): Response
     {
         DB::beginTransaction();
         try {
             $data = $request->getParsedBody();
-            $user = $request->getAttribute('user'); // Assuming AuthMiddleware sets this
+            $user = $request->getAttribute('user');
             $isPos = $user->role === 'pos';
 
             if (empty($data['items']) || !is_array($data['items'])) {
@@ -74,11 +82,20 @@ class OrderController
                 ];
             }
 
+            // Calculate fees (1.5% Paystack fee)
+            $fees = round($totalAmount * 0.015, 2);
+            $grandTotal = $totalAmount + $fees;
+
             // Create Order
             $orderData = [
                 'user_id' => $user->id,
-                'total_amount' => $totalAmount,
+                'subtotal' => $totalAmount,
+                'fees' => $fees,
+                'total_amount' => $grandTotal,
                 'status' => Order::STATUS_PENDING,
+                'customer_email' => $data['customer_email'] ?? $user->email,
+                'customer_name' => $data['customer_name'] ?? $user->name,
+                'customer_phone' => $data['customer_phone'] ?? $user->phone,
             ];
             
             if ($isPos) {
@@ -99,11 +116,19 @@ class OrderController
 
             DB::commit();
 
+            // Generate Paystack reference
+            $paystackReference = 'EVT-' . $order->id . '-' . time();
+            $order->update(['payment_reference' => $paystackReference]);
+
             return ResponseHelper::success($response, 'Order created successfully. Proceed to payment.', [
                 'order_id' => $order->id,
-                'total_amount' => $totalAmount,
+                'reference' => $paystackReference,
+                'subtotal' => $totalAmount,
+                'fees' => $fees,
+                'total_amount' => $grandTotal,
                 'status' => $order->status,
-                'is_pos' => $isPos
+                'is_pos' => $isPos,
+                'customer_email' => $order->customer_email,
             ], 201);
 
         } catch (Exception $e) {
@@ -113,77 +138,352 @@ class OrderController
     }
 
     /**
-     * Mock Payment Webhook (Simulates successful payment)
+     * Initialize Paystack payment
+     * POST /v1/orders/{id}/pay
      */
-    public function mockPaymentWebhook(Request $request, Response $response, array $args): Response
+    public function initializePayment(Request $request, Response $response, array $args): Response
     {
-        DB::beginTransaction();
         try {
-            $data = $request->getParsedBody();
+            $orderId = $args['id'];
+            $user = $request->getAttribute('user');
             
-            if (empty($data['order_id'])) {
-                return ResponseHelper::error($response, 'Order ID is required', 400);
-            }
-
-            $order = Order::find($data['order_id']);
+            $order = Order::find($orderId);
             
             if (!$order) {
                 return ResponseHelper::error($response, 'Order not found', 404);
             }
 
-            if ($order->status === Order::STATUS_PAID) {
-                return ResponseHelper::success($response, 'Order already paid', $order->toArray());
+            if ($order->user_id !== $user->id) {
+                return ResponseHelper::error($response, 'Unauthorized', 403);
             }
 
+            if ($order->status === Order::STATUS_PAID) {
+                return ResponseHelper::error($response, 'Order is already paid', 400);
+            }
+
+            // Initialize Paystack payment
+            $url = "https://api.paystack.co/transaction/initialize";
+            
+            $fields = [
+                'email' => $order->customer_email,
+                'amount' => (int)($order->total_amount * 100), // Convert to kobo/pesewas
+                'reference' => $order->payment_reference,
+                'callback_url' => $_ENV['FRONTEND_URL'] . '/payment/verify?order_id=' . $order->id,
+                'metadata' => [
+                    'order_id' => $order->id,
+                    'customer_name' => $order->customer_name,
+                    'custom_fields' => [
+                        [
+                            'display_name' => 'Order ID',
+                            'variable_name' => 'order_id',
+                            'value' => (string)$order->id
+                        ]
+                    ]
+                ]
+            ];
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($fields));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                "Authorization: Bearer " . $this->paystackSecretKey,
+                "Content-Type: application/json"
+            ]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            
+            $result = curl_exec($ch);
+            $err = curl_error($ch);
+            curl_close($ch);
+
+            if ($err) {
+                return ResponseHelper::error($response, 'Payment initialization failed', 500);
+            }
+
+            $paystackResponse = json_decode($result, true);
+
+            if (!$paystackResponse['status']) {
+                return ResponseHelper::error($response, $paystackResponse['message'] ?? 'Payment initialization failed', 400);
+            }
+
+            return ResponseHelper::success($response, 'Payment initialized', [
+                'authorization_url' => $paystackResponse['data']['authorization_url'],
+                'access_code' => $paystackResponse['data']['access_code'],
+                'reference' => $paystackResponse['data']['reference'],
+            ]);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Payment initialization failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Verify Paystack payment
+     * GET /v1/orders/{id}/verify
+     */
+    public function verifyPayment(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $orderId = $args['id'];
+            $queryParams = $request->getQueryParams();
+            $reference = $queryParams['reference'] ?? null;
+            
+            $order = Order::find($orderId);
+            
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found', 404);
+            }
+
+            if (!$reference) {
+                $reference = $order->payment_reference;
+            }
+
+            // Verify with Paystack
+            $url = "https://api.paystack.co/transaction/verify/" . rawurlencode($reference);
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                "Authorization: Bearer " . $this->paystackSecretKey,
+            ]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            
+            $result = curl_exec($ch);
+            $err = curl_error($ch);
+            curl_close($ch);
+
+            if ($err) {
+                return ResponseHelper::error($response, 'Payment verification failed', 500);
+            }
+
+            $paystackResponse = json_decode($result, true);
+
+            if (!$paystackResponse['status']) {
+                return ResponseHelper::error($response, 'Payment verification failed', 400);
+            }
+
+            $paymentData = $paystackResponse['data'];
+
+            if ($paymentData['status'] === 'success') {
+                // Payment successful - process the order
+                $this->processSuccessfulPayment($order, $reference);
+
+                return ResponseHelper::success($response, 'Payment verified successfully', [
+                    'order_id' => $order->id,
+                    'status' => 'paid',
+                    'reference' => $reference,
+                    'amount_paid' => $paymentData['amount'] / 100,
+                ]);
+            } else {
+                return ResponseHelper::error($response, 'Payment was not successful', 400, [
+                    'payment_status' => $paymentData['status'],
+                    'gateway_response' => $paymentData['gateway_response'] ?? null,
+                ]);
+            }
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Payment verification failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Paystack Webhook Handler
+     * POST /v1/payment/webhook
+     */
+    public function paystackWebhook(Request $request, Response $response): Response
+    {
+        try {
+            // Verify webhook signature
+            $input = file_get_contents('php://input');
+            $signature = $request->getHeaderLine('x-paystack-signature');
+            
+            if (!$this->verifyWebhookSignature($input, $signature)) {
+                return ResponseHelper::error($response, 'Invalid signature', 401);
+            }
+
+            $event = json_decode($input, true);
+            
+            if (!$event || empty($event['event'])) {
+                return ResponseHelper::error($response, 'Invalid event', 400);
+            }
+
+            // Handle different event types
+            switch ($event['event']) {
+                case 'charge.success':
+                    $this->handleChargeSuccess($event['data']);
+                    break;
+                    
+                case 'charge.failed':
+                    $this->handleChargeFailed($event['data']);
+                    break;
+                    
+                case 'transfer.success':
+                case 'transfer.failed':
+                    // Handle transfer events if needed for refunds
+                    break;
+            }
+
+            return ResponseHelper::success($response, 'Webhook processed', [], 200);
+
+        } catch (Exception $e) {
+            error_log('Paystack Webhook Error: ' . $e->getMessage());
+            return ResponseHelper::error($response, 'Webhook processing failed', 500);
+        }
+    }
+
+    /**
+     * Verify Paystack webhook signature
+     */
+    private function verifyWebhookSignature(string $input, string $signature): bool
+    {
+        if (empty($this->paystackSecretKey)) {
+            return false;
+        }
+
+        $expectedSignature = hash_hmac('sha512', $input, $this->paystackSecretKey);
+        return hash_equals($expectedSignature, $signature);
+    }
+
+    /**
+     * Handle successful charge event
+     */
+    private function handleChargeSuccess(array $data): void
+    {
+        $reference = $data['reference'] ?? null;
+        
+        if (!$reference) {
+            return;
+        }
+
+        $order = Order::where('payment_reference', $reference)->first();
+        
+        if (!$order || $order->status === Order::STATUS_PAID) {
+            return;
+        }
+
+        $this->processSuccessfulPayment($order, $reference);
+    }
+
+    /**
+     * Handle failed charge event
+     */
+    private function handleChargeFailed(array $data): void
+    {
+        $reference = $data['reference'] ?? null;
+        
+        if (!$reference) {
+            return;
+        }
+
+        $order = Order::where('payment_reference', $reference)->first();
+        
+        if (!$order || $order->status !== Order::STATUS_PENDING) {
+            return;
+        }
+
+        // Mark order as failed and release tickets
+        DB::beginTransaction();
+        try {
+            $order->update([
+                'status' => Order::STATUS_FAILED,
+            ]);
+
+            // Release reserved tickets
+            foreach ($order->items as $item) {
+                $ticketType = TicketType::find($item->ticket_type_id);
+                if ($ticketType) {
+                    $ticketType->increment('remaining', $item->quantity);
+                }
+            }
+
+            DB::commit();
+        } catch (Exception $e) {
+            DB::rollBack();
+            error_log('Failed to process charge failure: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Process successful payment and generate tickets
+     */
+    private function processSuccessfulPayment(Order $order, string $reference): void
+    {
+        DB::beginTransaction();
+        try {
             // Update Order Status
             $order->update([
                 'status' => Order::STATUS_PAID,
-                'payment_reference' => 'MOCK-' . uniqid(),
+                'payment_reference' => $reference,
+                'paid_at' => \Illuminate\Support\Carbon::now(),
             ]);
 
             // Generate Tickets
             $orderItems = $order->items;
-            $generatedTickets = [];
 
             foreach ($orderItems as $item) {
                 for ($i = 0; $i < $item->quantity; $i++) {
-                    $ticket = Ticket::create([
+                    Ticket::create([
                         'order_id' => $order->id,
                         'event_id' => $item->event_id,
                         'ticket_type_id' => $item->ticket_type_id,
                         'ticket_code' => Ticket::generateUniqueCode(),
                         'status' => Ticket::STATUS_ACTIVE,
-                        // Attendee ID can be assigned later
+                        'attendee_id' => null, // Can be assigned later
                     ]);
-                    $generatedTickets[] = $ticket;
                 }
             }
 
             DB::commit();
 
-            return ResponseHelper::success($response, 'Payment successful. Tickets generated.', [
-                'order' => $order,
-                'tickets_count' => count($generatedTickets)
-            ]);
+            // TODO: Send confirmation email
+            // $this->sendConfirmationEmail($order);
 
         } catch (Exception $e) {
             DB::rollBack();
-            return ResponseHelper::error($response, 'Payment processing failed', 500, $e->getMessage());
+            error_log('Failed to process successful payment: ' . $e->getMessage());
+            throw $e;
         }
     }
-    
+
     /**
      * Get user orders
+     * GET /v1/orders
      */
     public function index(Request $request, Response $response, array $args): Response
     {
         try {
             $user = $request->getAttribute('user');
-            $orders = Order::where('user_id', $user->id)->with('items.ticketType.event')->orderBy('created_at', 'desc')->get();
+            $orders = Order::where('user_id', $user->id)
+                ->with(['items.ticketType.event', 'tickets'])
+                ->orderBy('created_at', 'desc')
+                ->get();
             
             return ResponseHelper::success($response, 'Orders fetched successfully', $orders);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch orders', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single order
+     * GET /v1/orders/{id}
+     */
+    public function show(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $user = $request->getAttribute('user');
+            $order = Order::where('id', $args['id'])
+                ->where('user_id', $user->id)
+                ->with(['items.ticketType.event', 'tickets.ticketType', 'tickets.event'])
+                ->first();
+            
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found', 404);
+            }
+            
+            return ResponseHelper::success($response, 'Order fetched successfully', $order);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch order', 500, $e->getMessage());
         }
     }
 }
