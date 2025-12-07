@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\User;
+use App\Models\Attendee;
+use App\Models\Organizer;
 use App\Helper\ResponseHelper;
 use App\Services\AuthService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -64,6 +66,9 @@ class AuthController
                 'first_login' => true
             ]);
 
+            // Create role-based profile
+            $this->createRoleProfile($user, $data);
+
             // Log registration event
             $this->authService->logAuditEvent($user->id, 'register', $metadata);
 
@@ -87,6 +92,43 @@ class AuthController
 
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Registration failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Create role-based profile (Attendee or Organizer) for a new user
+     */
+    private function createRoleProfile(User $user, array $data): void
+    {
+        switch ($user->role) {
+            case User::ROLE_ATTENDEE:
+                // Split name into first and last name
+                $nameParts = explode(' ', $user->name, 2);
+                $firstName = $nameParts[0];
+                $lastName = $nameParts[1] ?? '';
+
+                Attendee::create([
+                    'user_id' => $user->id,
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'email' => $user->email,
+                    'phone' => $data['phone'] ?? null,
+                ]);
+                break;
+
+            case User::ROLE_ORGANIZER:
+                // Use organization name if provided, otherwise use user's name
+                $organizationName = $data['organizerName'] ?? $data['organization_name'] ?? $user->name;
+
+                Organizer::create([
+                    'user_id' => $user->id,
+                    'organization_name' => $organizationName,
+                ]);
+                break;
+
+            // POS, Scanner, and Admin roles don't need additional profiles
+            default:
+                break;
         }
     }
 

@@ -5,21 +5,31 @@
  */
 
 use App\Controllers\OrganizerController;
+use App\Middleware\AuthMiddleware;
 use Slim\App;
 
 return function (App $app): void {
-    // Get controller from container
+    // Get controller and middleware from container
     $organizerController = $app->getContainer()->get(OrganizerController::class);
-    
-    // Organizer routes
+    $authMiddleware = $app->getContainer()->get(AuthMiddleware::class);
+
+    // Public organizer routes
     $app->group('/v1/organizers', function ($group) use ($organizerController) {
         $group->get('', [$organizerController, 'index']);
-        
+
         // Query Params: ?query={search_term}
-        $group->get('/search', [$organizerController, 'search']); 
+        $group->get('/search', [$organizerController, 'search']);
         $group->get('/{id}', [$organizerController, 'show']);
+    });
+
+    // Protected organizer routes (require authentication)
+    $app->group('/v1/organizers', function ($group) use ($organizerController) {
+        // Dashboard - fetch all dashboard data in a single call
+        $group->get('/data/dashboard', [$organizerController, 'getDashboard']);
+
+        // CRUD operations
         $group->post('', [$organizerController, 'create']);
         $group->put('/{id}', [$organizerController, 'update']);
         $group->delete('/{id}', [$organizerController, 'delete']);
-    });
+    })->add($authMiddleware);
 };
