@@ -27,6 +27,9 @@ return function (App $app): void {
         // Dashboard - fetch all dashboard data in a single call
         $group->get('/data/dashboard', [$organizerController, 'getDashboard']);
 
+        // Events - fetch all events for the organizer
+        $group->get('/data/events', [$organizerController, 'getEvents']);
+
         // CRUD operations
         $group->post('', [$organizerController, 'create']);
         $group->put('/{id}', [$organizerController, 'update']);

@@ -351,6 +351,109 @@ class OrganizerController
     }
 
     /**
+     * Get all events for the authenticated organizer
+     * Returns events with stats, status counts, and event details
+     */
+    public function getEvents(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Get organizer profile
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            // Get all events for this organizer with related data
+            $events = Event::where('organizer_id', $organizer->id)
+                ->with(['eventType', 'images', 'ticketTypes'])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            // Calculate status counts
+            $statusCounts = [
+                'all' => $events->count(),
+                'published' => $events->where('status', 'published')->count(),
+                'draft' => $events->where('status', 'draft')->count(),
+                'pending' => $events->where('status', 'pending')->count(),
+                'cancelled' => $events->where('status', 'cancelled')->count(),
+                'completed' => $events->filter(function ($event) {
+                    return $event->status === 'published' &&
+                        $event->end_time &&
+                        Carbon::parse($event->end_time)->isPast();
+                })->count(),
+            ];
+
+            // Format events for frontend
+            $formattedEvents = $events->map(function ($event) {
+                // Calculate tickets sold and total
+                $ticketTypes = $event->ticketTypes;
+                $totalTickets = $ticketTypes->sum('quantity');
+                $remainingTickets = $ticketTypes->sum('remaining');
+                $ticketsSold = $totalTickets - $remainingTickets;
+
+                // Calculate revenue from paid orders for this event
+                $revenue = OrderItem::where('event_id', $event->id)
+                    ->whereHas('order', function ($q) {
+                        $q->where('status', 'paid');
+                    })
+                    ->sum('total_price');
+
+                // Determine effective status (check if completed)
+                $status = $event->status;
+                if ($status === 'published' && $event->end_time && Carbon::parse($event->end_time)->isPast()) {
+                    $status = 'completed';
+                }
+
+                return [
+                    'id' => $event->id,
+                    'name' => $event->title,
+                    'slug' => $event->slug,
+                    'image' => $event->banner_image ?? $event->images->first()?->image_path ??
+                        'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=300&h=200&fit=crop',
+                    'date' => $event->start_time ? Carbon::parse($event->start_time)->format('M d, Y') : null,
+                    'time' => $event->start_time ? Carbon::parse($event->start_time)->format('g:i A') : null,
+                    'location' => $event->address ?? $event->venue_name ?? 'TBD',
+                    'venue' => $event->venue_name,
+                    'category' => $event->eventType?->name ?? 'Event',
+                    'status' => ucfirst($status),
+                    'ticketsSold' => $ticketsSold,
+                    'totalTickets' => $totalTickets,
+                    'revenue' => (float) $revenue,
+                    'createdAt' => $event->created_at->format('M d, Y'),
+                ];
+            })->toArray();
+
+            // Build stats array
+            $stats = [
+                ['label' => 'Total Events', 'value' => (string) $statusCounts['all'], 'icon' => 'Calendar', 'color' => '#3b82f6'],
+                ['label' => 'Published', 'value' => (string) $statusCounts['published'], 'icon' => 'TrendingUp', 'color' => '#22c55e'],
+                ['label' => 'Draft', 'value' => (string) $statusCounts['draft'], 'icon' => 'Edit', 'color' => '#f59e0b'],
+                ['label' => 'Completed', 'value' => (string) $statusCounts['completed'], 'icon' => 'TicketCheck', 'color' => '#8b5cf6'],
+            ];
+
+            // Build tabs array with counts
+            $tabs = [
+                ['id' => 'all', 'label' => 'All Events', 'count' => $statusCounts['all']],
+                ['id' => 'published', 'label' => 'Published', 'count' => $statusCounts['published']],
+                ['id' => 'draft', 'label' => 'Draft', 'count' => $statusCounts['draft']],
+                ['id' => 'completed', 'label' => 'Completed', 'count' => $statusCounts['completed']],
+            ];
+
+            return ResponseHelper::success($response, 'Events fetched successfully', [
+                'events' => $formattedEvents,
+                'stats' => $stats,
+                'tabs' => $tabs,
+                'statusCounts' => $statusCounts,
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch events', 500, $e->getMessage());
+        }
+    }
+
+    /**
      * Get all organizers
      */
     public function index(Request $request, Response $response, array $args): Response
