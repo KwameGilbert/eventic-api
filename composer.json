@@ -6,10 +6,8 @@
   "scripts": {
     "start": "php -S localhost:8080 -t public",
     "test": "phpunit",
-    "phinx-create": "phinx create",
+    "phinx-create-migration": "phinx create",
     "phinx-migrate": "phinx migrate",
-    "phinx-create-verbose": "phinx create -vvv",
-    "phinx-migrate-verbose": "phinx migrate -vvv",
     "phinx-create-seed": "phinx seed:create",
     "phinx-status": "phinx status",
     "phinx-run-seed": "phinx seed:run",
