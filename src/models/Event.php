@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\EventReview;
 
 /**
  * Event Model
@@ -24,9 +25,19 @@ use Illuminate\Database\Eloquent\Model;
  * @property \Illuminate\Support\Carbon $start_time
  * @property \Illuminate\Support\Carbon $end_time
  * @property string $status
+ * @property bool $is_featured
  * @property string|null $audience
  * @property string|null $language
  * @property array|null $tags
+ * @property string|null $website
+ * @property string|null $facebook
+ * @property string|null $twitter
+ * @property string|null $instagram
+ * @property string|null $phone
+ * @property string|null $video_url
+ * @property string $country
+ * @property string $region
+ * @property string $city
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -64,6 +75,7 @@ class Event extends Model
     const STATUS_PENDING = 'pending';
     const STATUS_PUBLISHED = 'published';
     const STATUS_CANCELLED = 'cancelled';
+    const STATUS_COMPLETED = 'completed';
 
     /**
      * The attributes that are mass assignable.
@@ -86,6 +98,16 @@ class Event extends Model
         'audience',
         'language',
         'tags',
+        'website',
+        'facebook',
+        'twitter',
+        'instagram',
+        'phone',
+        'video_url',
+        'country',
+        'region',
+        'city',
+        'views',
     ];
 
     /**
@@ -207,8 +229,8 @@ class Event extends Model
             ->where('status', TicketType::STATUS_ACTIVE)
             ->orderBy('price', 'asc')
             ->first();
-        
-        return $lowestTicket ? (float)$lowestTicket->price : null;
+
+        return $lowestTicket ? (float) $lowestTicket->price : null;
     }
 
     /**
@@ -218,7 +240,7 @@ class Event extends Model
     {
         // Load relationships
         $this->load(['organizer.user', 'ticketTypes', 'images', 'eventType']);
-        
+
         $details = [
             'id' => $this->id,
             'title' => $this->title,
@@ -226,15 +248,17 @@ class Event extends Model
             'description' => $this->description,
             'venue' => $this->venue_name,
             'location' => $this->address,
-            'country' => '', // Could be extracted from address if stored
+            'country' => $this->country ?? '',
+            'region' => $this->region ?? '',
+            'city' => $this->city ?? '',
             'date' => $this->start_time ? $this->start_time->format('Y-m-d') : null,
             'time' => $this->start_time ? $this->start_time->format('g:i A') : null,
             'price' => $this->getLowestPrice() ? 'GH₵' . number_format($this->getLowestPrice(), 2) : 'Free',
             'numericPrice' => $this->getLowestPrice() ?? 0,
-            'category' => $this->eventType ? $this->eventType->name : null,
-            'slug' => $this->eventType ? $this->eventType->slug : null,
+            'category' => $this->eventType ? $this->eventType->id : null,
+            'categorySlug' => $this->eventType ? $this->eventType->slug : null,
             'audience' => $this->audience,
-            'isOnline' => false,
+            'language' => $this->language,
             'image' => $this->banner_image,
             'mapUrl' => $this->map_url,
             'tags' => $this->tags ?? [],
@@ -242,20 +266,39 @@ class Event extends Model
                 return [
                     'id' => $tt->id,
                     'name' => $tt->name,
-                    'price' => (float)$tt->price,
-                    'originalPrice' => null, // Could add a original_price field if needed
-                    'available' => $tt->isAvailable(),
+                    'price' => (float) $tt->price,
+                    'salePrice' => $tt->sale_price ? (float) $tt->sale_price : null,
+                    'onSale' => $tt->isAvailable(),
                     'availableQuantity' => $tt->remaining,
                     'maxPerAttendee' => $tt->max_per_user,
-                    'description' => null, // Could add description field to ticket_types
+                    'description' => $tt->description,
+                    'ticketImage' => $tt->ticket_image,
+                    'saleStartDate' => $tt->sale_start,
+                    'saleEndDate' => $tt->sale_end,
+                    'quantity' => $tt->quantity,
+                    'sold' => $tt->quantity - $tt->remaining,
                 ];
             })->toArray(),
             'organizer' => null,
-            'contact' => null,
-            'socialMedia' => null,
+            'contact' => [
+                'email' => $this->organizer ? ($this->organizer->user->email ?? null) : null,
+                'phone' => $this->phone,
+                'website' => $this->website,
+            ],
+            'socialMedia' => [
+                'facebook' => $this->facebook,
+                'twitter' => $this->twitter,
+                'instagram' => $this->instagram,
+            ],
             'start_time' => $this->start_time,
             'end_time' => $this->end_time,
             'status' => $this->status,
+            'website' => $this->website,
+            'facebook' => $this->facebook,
+            'twitter' => $this->twitter,
+            'instagram' => $this->instagram,
+            'phone' => $this->phone,
+            'videoUrl' => $this->video_url,
         ];
 
         // Add organizer info if available

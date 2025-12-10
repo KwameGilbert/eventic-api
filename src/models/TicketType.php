@@ -45,6 +45,7 @@ class TicketType extends Model
         'organizer_id',
         'name',
         'price',
+        'sale_price',
         'quantity',
         'remaining',
         'dynamic_fee',
@@ -53,12 +54,14 @@ class TicketType extends Model
         'max_per_user',
         'ticket_image',
         'status',
+        'description',
     ];
 
     protected $casts = [
         'event_id' => 'integer',
         'organizer_id' => 'integer',
         'price' => 'decimal:2',
+        'sale_price' => 'decimal:2',
         'quantity' => 'integer',
         'remaining' => 'integer',
         'dynamic_fee' => 'decimal:2',
