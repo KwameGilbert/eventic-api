@@ -594,4 +594,224 @@ class OrganizerController
             return ResponseHelper::error($response, 'Failed to search organizers', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Get detailed event data for the organizer's View Event page
+     * Includes stats, ticket types with sales, attendees, etc.
+     */
+    public function getEventDetails(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $eventId = $args['id'];
+
+            // Get organizer profile
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            // Get the event with relationships
+            $event = Event::with(['organizer.user', 'ticketTypes', 'images', 'eventType'])
+                ->where('id', $eventId)
+                ->first();
+
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Authorization: Check if organizer owns this event
+            if ($jwtUser->role !== 'admin' && $event->organizer_id !== $organizer->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+            }
+
+            // === GET BASE EVENT DETAILS FROM MODEL ===
+            $eventData = $event->getFullDetails();
+
+            // === ADD ORGANIZER-SPECIFIC STATS ===
+            // Get tickets sold from TicketType (quantity - remaining)
+            $ticketsSold = 0;
+            $totalTickets = 0;
+            foreach ($event->ticketTypes as $ticketType) {
+                $ticketsSold += ($ticketType->quantity - $ticketType->remaining);
+                $totalTickets += $ticketType->quantity;
+            }
+
+            // Get revenue from paid orders
+            $revenue = OrderItem::where('event_id', $eventId)
+                ->whereHas('order', function ($q) {
+                    $q->where('status', 'paid');
+                })
+                ->sum('total_price');
+
+            // Get order count
+            $ordersCount = Order::whereHas('items', function ($q) use ($eventId) {
+                $q->where('event_id', $eventId);
+            })
+                ->where('status', 'paid')
+                ->count();
+
+            $stats = [
+                'totalRevenue' => (float) $revenue,
+                'ticketsSold' => $ticketsSold,
+                'totalTickets' => $totalTickets,
+                'orders' => $ordersCount,
+                'views' => $event->views,
+            ];
+
+            // === ADD ORGANIZER-SPECIFIC DATA TO EVENT ===
+            $eventData['stats'] = $stats;
+            
+            // Format timestamps for organizer view
+            $eventData['createdAt'] = $event->created_at ? Carbon::parse($event->created_at)->format('Y-m-d') : null;
+            $eventData['updatedAt'] = $event->updated_at ? Carbon::parse($event->updated_at)->format('Y-m-d') : null;
+
+            return ResponseHelper::success($response, 'Event details fetched successfully', $eventData);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch event details', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get all orders for organizer's events
+     * GET /v1/organizer/orders
+     */
+    public function getOrders(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $queryParams = $request->getQueryParams();
+
+            // Get organizer profile
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            // Get organizer's events
+            $eventIds = Event::where('organizer_id', $organizer->id)->pluck('id')->toArray();
+
+            if (empty($eventIds)) {
+                return ResponseHelper::success($response, 'No orders found', [
+                    'orders' => [],
+                    'stats' => [
+                        'totalOrders' => 0,
+                        'totalRevenue' => 0,
+                        'completed' => 0,
+                        'pending' => 0,
+                        'cancelled' => 0,
+                        'refunded' => 0,
+                    ],
+                    'pagination' => [
+                        'page' => 1,
+                        'perPage' => 20,
+                        'total' => 0,
+                    ]
+                ]);
+            }
+
+            // Build query for orders related to organizer's events
+            $query = Order::whereHas('items', function ($q) use ($eventIds) {
+                $q->whereIn('event_id', $eventIds);
+            })->with(['user', 'items.event', 'items.ticketType']);
+
+            // Filter by status
+            if (isset($queryParams['status']) && $queryParams['status'] !== 'all') {
+                $query->where('status', $queryParams['status']);
+            }
+
+            // Search functionality
+            if (isset($queryParams['search']) && !empty($queryParams['search'])) {
+                $search = $queryParams['search'];
+                $query->where(function ($q) use ($search) {
+                    $q->where('reference', 'LIKE', "%{$search}%")
+                        ->orWhereHas('user', function ($userQuery) use ($search) {
+                            $userQuery->where('name', 'LIKE', "%{$search}%")
+                                ->orWhere('email', 'LIKE', "%{$search}%");
+                        });
+                });
+            }
+
+            // Get stats before pagination
+            $allOrders = Order::whereHas('items', function ($q) use ($eventIds) {
+                $q->whereIn('event_id', $eventIds);
+            })->get();
+
+            $stats = [
+                'totalOrders' => $allOrders->count(),
+                'totalRevenue' => $allOrders->where('status', 'paid')->sum('total_amount'),
+                'completed' => $allOrders->where('status', 'paid')->count(),
+                'pending' => $allOrders->where('status', 'pending')->count(),
+                'cancelled' => $allOrders->where('status', 'cancelled')->count(),
+                'refunded' => $allOrders->where('status', 'refunded')->count(),
+            ];
+
+            // Pagination
+            $page = (int) ($queryParams['page'] ?? 1);
+            $perPage = (int) ($queryParams['per_page'] ?? 20);
+            $offset = ($page - 1) * $perPage;
+
+            $total = $query->count();
+            $orders = $query->orderBy('created_at', 'desc')
+                ->offset($offset)
+                ->limit($perPage)
+                ->get();
+
+            // Format orders for frontend
+            $formattedOrders = $orders->map(function ($order) {
+                $customer = $order->user;
+                $orderItems = $order->items;
+
+                // Group tickets by event
+                $tickets = $orderItems->map(function ($item) {
+                    return [
+                        'name' => $item->ticketType ? $item->ticketType->name : 'Unknown',
+                        'quantity' => $item->quantity,
+                        'price' => $item->price,
+                    ];
+                })->toArray();
+
+                // Get primary event (first one)
+                $primaryEvent = $orderItems->first()->event ?? null;
+
+                return [
+                    'id' => 'ORD-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
+                    'orderId' => $order->id,
+                    'reference' => $order->reference,
+                    'customer' => [
+                        'name' => $customer ? $customer->name : 'Unknown',
+                        'email' => $customer ? $customer->email : 'N/A',
+                        'avatar' => $customer && $customer->name
+                            ? 'https://ui-avatars.com/api/?name=' . urlencode($customer->name) . '&background=3b82f6&color=fff'
+                            : 'https://ui-avatars.com/api/?name=U&background=gray&color=fff'
+                    ],
+                    'event' => [
+                        'id' => $primaryEvent ? $primaryEvent->id : null,
+                        'name' => $primaryEvent ? $primaryEvent->title : 'Multiple Events',
+                        'date' => $primaryEvent && $primaryEvent->start_time
+                            ? Carbon::parse($primaryEvent->start_time)->format('M d, Y')
+                            : 'N/A',
+                    ],
+                    'tickets' => $tickets,
+                    'totalAmount' => $order->total_amount,
+                    'status' => ucfirst($order->status),
+                    'paymentMethod' => $order->payment_method ?? 'N/A',
+                    'orderDate' => $order->created_at ? Carbon::parse($order->created_at)->format('Y-m-d H:i') : null,
+                ];
+            });
+
+            return ResponseHelper::success($response, 'Orders fetched successfully', [
+                'orders' => $formattedOrders->toArray(),
+                'stats' => $stats,
+                'pagination' => [
+                    'page' => $page,
+                    'perPage' => $perPage,
+                    'total' => $total,
+                ]
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch orders', 500, $e->getMessage());
+        }
+    }
 }
+
