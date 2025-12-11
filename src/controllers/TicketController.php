@@ -56,7 +56,7 @@ class TicketController
                 return ResponseHelper::error($response, 'Unauthorized access to ticket', 403);
             }
             
-            return ResponseHelper::success($response, 'Ticket details fetched successfully', $ticket);
+            return ResponseHelper::success($response, 'Ticket details fetched successfully', $ticket->toArray());
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch ticket', 500, $e->getMessage());
         }
@@ -155,7 +155,7 @@ class TicketController
             // Mark as used and record who admitted it
             $ticket->status = Ticket::STATUS_USED;
             $ticket->admitted_by = $user->id;
-            $ticket->admitted_at = now();
+            $ticket->admitted_at = \Illuminate\Support\Carbon::now();
             $ticket->save();
             
             return ResponseHelper::success($response, 'Ticket admitted successfully', [

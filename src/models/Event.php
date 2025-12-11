@@ -257,6 +257,7 @@ class Event extends Model
             'numericPrice' => $this->getLowestPrice() ?? 0,
             'category' => $this->eventType ? $this->eventType->id : null,
             'categorySlug' => $this->eventType ? $this->eventType->slug : null,
+            'categoryName' => $this->eventType ? $this->eventType->name : null,
             'audience' => $this->audience,
             'language' => $this->language,
             'image' => $this->banner_image,

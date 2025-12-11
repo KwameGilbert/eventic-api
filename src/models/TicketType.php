@@ -99,4 +99,12 @@ class TicketType extends Model
             && ($this->sale_start === null || $this->sale_start <= $now)
             && ($this->sale_end === null || $this->sale_end >= $now);
     }
+
+    /**
+     * Check if ticket is active
+     */
+    public function isActive(): bool
+    {
+        return $this->status === self::STATUS_ACTIVE;
+    }
 }

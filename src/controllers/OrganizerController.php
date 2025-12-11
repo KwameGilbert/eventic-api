@@ -775,7 +775,7 @@ class OrganizerController
                 $primaryEvent = $orderItems->first()->event ?? null;
 
                 return [
-                    'id' => 'ORD-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
+                    'id' => $order->id,
                     'orderId' => $order->id,
                     'reference' => $order->reference,
                     'customer' => [
@@ -811,6 +811,193 @@ class OrganizerController
             ]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch orders', 500, $e->getMessage());
+        }
+    }
+
+     /**
+     * Get single order details for organizer
+     * GET /v1/organizers/data/orders/{id}
+     */
+    public function getOrderDetails(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $orderId = $args['id'];
+
+            // Get organizer profile
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            // Get the order with all related data including nested relationships
+            $order = (object) Order::with([
+                'user',
+                'items.event.eventType',
+                'items.event.images',
+                'items.event.organizer',
+                'items.ticketType',
+                'tickets.ticketType',
+                'tickets.event'
+            ])->find($orderId);
+
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found', 404);
+            }
+
+            // Verify organizer owns the events in this order
+            $eventIds = $order->items->pluck('event_id')->unique()->toArray();
+            $organizerEventIds = Event::where('organizer_id', $organizer->id)->pluck('id')->toArray();
+            
+            $hasAccess = !empty(array_intersect($eventIds, $organizerEventIds));
+            if (!$hasAccess && $jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized: This order is not for your events', 403);
+            }
+
+            // Format complete customer data
+            $customer = $order->user;
+            $customerData = [
+                'id' => $customer ? $customer->id : null,
+                'name' => $order->customer_name ?? ($customer ? $customer->name : null),
+                'email' => $order->customer_email ?? ($customer ? $customer->email : null),
+                'phone' => $order->customer_phone ?? ($customer ? $customer->phone : null),
+                'avatar' => $customer && $customer->name
+                    ? 'https://ui-avatars.com/api/?name=' . urlencode($customer->name) . '&background=3b82f6&color=fff'
+                    : null
+            ];
+
+            // Format all events (not just primary event)
+            $eventsData = $order['items']->map(function ($item) {
+                $event = $item['event'];
+                if (!$event) {
+                    return null;
+                }
+
+                return [
+                    'id' => $event->id,
+                    'title' => $event->title,
+                    'slug' => $event->slug,
+                    'description' => $event->description,
+                    'eventType' => $event->eventType ? [
+                        'id' => $event->eventType->id,
+                        'name' => $event->eventType->name,
+                        'slug' => $event->eventType->slug
+                    ] : null,
+                    'venueName' => $event->venue_name,
+                    'address' => $event->address,
+                    'mapUrl' => $event->map_url,
+                    'bannerImage' => $event->banner_image,
+                    'images' => $event->images ? $event->images->map(function ($img) {
+                        return [
+                            'id' => $img->id,
+                            'path' => $img->image_path
+                        ];
+                    })->toArray() : [],
+                    'startTime' => $event->start_time ? Carbon::parse($event->start_time)->toIso8601String() : null,
+                    'endTime' => $event->end_time ? Carbon::parse($event->end_time)->toIso8601String() : null,
+                    'status' => $event->status,
+                    'isFeatured' => (bool) $event->is_featured,
+                    'audience' => $event->audience,
+                    'language' => $event->language,
+                    'tags' => $event->tags,
+                    'createdAt' => $event->created_at ? $event->created_at->toIso8601String() : null,
+                    'updatedAt' => $event->updated_at ? $event->updated_at->toIso8601String() : null
+                ];
+            })->filter()->unique('id')->values()->toArray();
+
+            // Get primary event (first one)
+            $primaryEvent = !empty($eventsData) ? $eventsData[0] : null;
+
+            // Format complete order items with full ticket type information
+            $orderItems = $order['items']->map(function ($item) use ($order) {
+                $ticketType = $item['ticketType'];
+                
+                // Get all tickets for this order item
+                $itemTickets = $order->tickets
+                    ->where('ticket_type_id', $item->ticket_type_id)
+                    ->where('event_id', $item->event_id)
+                    ->map(function ($ticket) use ($ticketType) {
+                        return [
+                            'id' => $ticket->id,
+                            'ticketCode' => $ticket->ticket_code,
+                            'ticketTypeId' => $ticket->ticket_type_id,
+                            'ticketTypeName' => $ticketType ? $ticketType->name : null,
+                            'ticketTypeImage' => $ticketType ? $ticketType->ticket_image : null,
+                            'status' => $ticket->status,
+                            'admittedBy' => $ticket->admitted_by,
+                            'admittedAt' => $ticket->admitted_at ? Carbon::parse($ticket->admitted_at)->toIso8601String() : null,
+                            'createdAt' => $ticket->created_at ? $ticket->created_at->toIso8601String() : null
+                        ];
+                    })->values()->toArray();
+
+                return [
+                    'id' => $item->id,
+                    'eventId' => $item->event_id,
+                    'ticketTypeId' => $item->ticket_type_id,
+                    'ticketType' => $ticketType ? [
+                        'id' => $ticketType->id,
+                        'name' => $ticketType->name,
+                        'description' => $ticketType->description ?? null,
+                        'price' => (float) $ticketType->price,
+                        'salePrice' => $ticketType->sale_price ? (float) $ticketType->sale_price : null,
+                        'quantity' => $ticketType->quantity,
+                        'remaining' => $ticketType->remaining,
+                        'dynamicFee' => (float) $ticketType->dynamic_fee,
+                        'saleStart' => $ticketType->sale_start ? Carbon::parse($ticketType->sale_start)->toIso8601String() : null,
+                        'saleEnd' => $ticketType->sale_end ? Carbon::parse($ticketType->sale_end)->toIso8601String() : null,
+                        'maxPerUser' => $ticketType->max_per_user,
+                        'ticketImage' => $ticketType->ticket_image,
+                        'status' => $ticketType->status
+                    ] : null,
+                    'quantity' => $item->quantity,
+                    'unitPrice' => (float) $item->unit_price,
+                    'totalPrice' => (float) $item->total_price,
+                    'tickets' => $itemTickets,
+                    'createdAt' => $item->created_at ? $item->created_at->toIso8601String() : null,
+                    'updatedAt' => $item->updated_at ? $item->updated_at->toIso8601String() : null
+                ];
+            })->values()->toArray();
+
+            // Build order timeline - only real events
+            $timeline = [
+                [
+                    'action' => 'Order placed',
+                    'date' => $order->created_at ? $order->created_at->toIso8601String() : null,
+                    'status' => 'completed'
+                ]
+            ];
+
+            if ($order->status === 'paid' && $order->paid_at) {
+                $timeline[] = [
+                    'action' => 'Payment received',
+                    'date' => Carbon::parse($order->paid_at)->toIso8601String(),
+                    'status' => 'completed'
+                ];
+            }
+
+            // Format complete order details with all database fields
+            $orderDetails = [
+                'id' => $order->id,
+                'userId' => $order->user_id,
+                'posUserId' => $order->pos_user_id,
+                'paymentReference' => $order->payment_reference,
+                'customer' => $customerData,
+                'events' => $eventsData,
+                'primaryEvent' => $primaryEvent,
+                'orderItems' => $orderItems,
+                'subtotal' => (float) $order->subtotal,
+                'fees' => (float) $order->fees,
+                'totalAmount' => (float) $order->total_amount,
+                'status' => $order->status,
+                'createdAt' => $order->created_at ? $order->created_at->toIso8601String() : null,
+                'updatedAt' => $order->updated_at ? $order->updated_at->toIso8601String() : null,
+                'paidAt' => $order->paid_at ? Carbon::parse($order->paid_at)->toIso8601String() : null,
+                'timeline' => $timeline
+            ];
+
+            return ResponseHelper::success($response, 'Order details fetched successfully', $orderDetails);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch order details', 500, $e->getMessage());
         }
     }
 }

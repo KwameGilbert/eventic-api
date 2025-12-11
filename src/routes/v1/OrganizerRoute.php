@@ -35,6 +35,9 @@ return function (App $app): void {
 
         // Orders - fetch all orders for organizer's events
         $group->get('/data/orders', [$organizerController, 'getOrders']);
+        
+        // Order Details - fetch single order details
+        $group->get('/data/orders/{id}', [$organizerController, 'getOrderDetails']);
 
         // CRUD operations
         $group->post('', [$organizerController, 'create']);

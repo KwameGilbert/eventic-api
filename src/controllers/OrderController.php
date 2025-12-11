@@ -61,8 +61,8 @@ class OrderController
                 }
 
                 $ticketType = TicketType::find($item['ticket_type_id']);
-                if (!$ticketType || !$ticketType->isAvailable()) {
-                    throw new Exception("Ticket type {$item['ticket_type_id']} is not available");
+                if (!$ticketType || !$ticketType->isActive()) {
+                    throw new Exception("Ticket type {$item['ticket_type_id']} is not active");
                 }
                 
                 // POS Assignment Check
