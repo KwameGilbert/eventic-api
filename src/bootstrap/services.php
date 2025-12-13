@@ -54,6 +54,24 @@ return function ($container) {
         return new VerificationService($container->get(EmailService::class));
     });
 
+    // Notification System Services
+    $container->set(\App\Services\NotificationQueue::class, function () {
+        return new \App\Services\NotificationQueue();
+    });
+
+    $container->set(\App\Services\TemplateEngine::class, function () {
+        return new \App\Services\TemplateEngine();
+    });
+
+    $container->set(\App\Services\NotificationService::class, function ($container) {
+        return new \App\Services\NotificationService(
+            $container->get(EmailService::class),
+            $container->get(SMSService::class),
+            $container->get(\App\Services\NotificationQueue::class),
+            $container->get(\App\Services\TemplateEngine::class)
+        );
+    });
+
     $container->set(\Psr\Http\Message\ResponseFactoryInterface::class, function () {
         return new \Slim\Psr7\Factory\ResponseFactory();
     });
@@ -95,8 +113,10 @@ return function ($container) {
         return new TicketTypeController();
     });
 
-    $container->set(OrderController::class, function () {
-        return new OrderController();
+    $container->set(OrderController::class, function ($container) {
+        return new OrderController(
+            $container->get(\App\Services\NotificationService::class)
+        );
     });
 
     $container->set(TicketController::class, function () {

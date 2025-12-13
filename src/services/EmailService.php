@@ -157,6 +157,35 @@ class EmailService
         }
     }
 
+    /**
+     * Generic send method for NotificationService compatibility
+     *
+     * @param string $to Recipient email
+     * @param string $subject Email subject
+     * @param string $body Email body (HTML)
+     * @param string $fromName Optional custom from name
+     * @return bool Success
+     */
+    public function send(string $to, string $subject, string $body, string $fromName = null): bool
+    {
+        try {
+            $this->mailer->clearAddresses();
+            $this->mailer->setFrom($this->fromEmail, $fromName ?? $this->fromName);
+            $this->mailer->addAddress($to);
+            
+            $this->mailer->isHTML(true);
+            $this->mailer->Subject = $subject;
+            $this->mailer->Body = $body;
+            
+            $this->mailer->send();
+            return true;
+
+        } catch (Exception $e) {
+            error_log('Email send error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     // ========================================
     // EMAIL TEMPLATES
     // ========================================

@@ -15,7 +15,7 @@ return function (App $app): void {
     // Public routes (no auth required - voting is open to everyone)
     $app->group('/v1', function ($group) use ($voteController) {
         // Initiate a vote (create pending vote)
-        $group->post('/nominees/{nomineeId}/vote', [$voteController, 'initiate']);
+        $group->post('votes/nominees/{nomineeId}', [$voteController, 'initiate']);
 
         // Confirm vote payment (callback from payment gateway)
         $group->post('/votes/confirm', [$voteController, 'confirmPayment']);
@@ -25,23 +25,23 @@ return function (App $app): void {
 
         // Get votes for a nominee
         // Query Params: ?status=pending|paid
-        $group->get('/nominees/{nomineeId}/votes', [$voteController, 'getByNominee']);
+        $group->get('/votes/nominees/{nomineeId}', [$voteController, 'getByNominee']);
 
         // Get votes for a category
         // Query Params: ?status=pending|paid
-        $group->get('/award-categories/{categoryId}/votes', [$voteController, 'getByCategory']);
+        $group->get('/votes/award-categories/{categoryId}', [$voteController, 'getByCategory']);
 
         // Get category leaderboard (public - for display)
-        $group->get('/award-categories/{categoryId}/leaderboard', [$voteController, 'getLeaderboard']);
+        $group->get('/votes/award-categories/{categoryId}/leaderboard', [$voteController, 'getLeaderboard']);
     });
 
     // Protected routes (auth required - organizer/admin only)
-    $app->group('/v1/events', function ($group) use ($voteController) {
+    $app->group('/v1', function ($group) use ($voteController) {
         // Get all votes for an event (organizer only)
         // Query Params: ?status=pending|paid
-        $group->get('/{eventId}/votes', [$voteController, 'getByEvent']);
+        $group->get('/votes/events/{eventId}', [$voteController, 'getByEvent']);
 
         // Get comprehensive event vote statistics (organizer only)
-        $group->get('/{eventId}/vote-stats', [$voteController, 'getEventStats']);
+        $group->get('/votes/events/{eventId}/stats', [$voteController, 'getEventStats']);
     })->add($authMiddleware);
 };

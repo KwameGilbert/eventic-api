@@ -35,7 +35,7 @@ class SMSService
         $resetLink = "{$appUrl}/reset-password?token={$token}";
         $message = "Reset your password here: {$resetLink}";
 
-        return $this->sendSMS($phone, $message);
+        return $this->send($phone, $message);
     }
 
     /**
@@ -45,7 +45,7 @@ class SMSService
      * @param string $message Message content
      * @return bool Success
      */
-    public function sendSMS(string $phone, string $message): bool
+    public function send(string $phone, string $message): bool
     {
         $payload = [
             "sender"     => $this->sender,

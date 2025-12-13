@@ -16,11 +16,11 @@ return function (App $app): void {
     $app->group('/v1', function ($group) use ($nomineeController) {
         // List nominees by category
         // Query Params: ?include_stats=true|false
-        $group->get('/award-categories/{categoryId}/nominees', [$nomineeController, 'index']);
+        $group->get('/nominees/award-categories/{categoryId}', [$nomineeController, 'index']);
 
         // List all nominees for an event
         // Query Params: ?include_stats=true|false
-        $group->get('/events/{eventId}/nominees', [$nomineeController, 'getByEvent']);
+        $group->get('/nominees/events/{eventId}', [$nomineeController, 'getByEvent']);
 
         // Get single nominee details
         // Query Params: ?include_stats=true|false
@@ -33,7 +33,7 @@ return function (App $app): void {
     // Protected routes (auth required - organizer/admin only)
     $app->group('/v1', function ($group) use ($nomineeController) {
         // Create new nominee (with image upload)
-        $group->post('/award-categories/{categoryId}/nominees', [$nomineeController, 'create']);
+        $group->post('/nominees/award-categories/{categoryId}', [$nomineeController, 'create']);
 
         // Update nominee (with image upload)
         $group->put('/nominees/{id}', [$nomineeController, 'update']);
@@ -44,6 +44,6 @@ return function (App $app): void {
         $group->delete('/nominees/{id}', [$nomineeController, 'delete']);
 
         // Reorder nominees
-        $group->post('/award-categories/{categoryId}/nominees/reorder', [$nomineeController, 'reorder']);
+        $group->post('/nominees/award-categories/{categoryId}/reorder', [$nomineeController, 'reorder']);
     })->add($authMiddleware);
 };
