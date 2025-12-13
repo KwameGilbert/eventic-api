@@ -1,0 +1,333 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controllers;
+
+use App\Helper\ResponseHelper;
+use App\Models\AwardCategory;
+use App\Models\Event;
+use App\Models\Organizer;
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+use Exception;
+
+class AwardCategoryController
+{
+    /**
+     * Get all categories for an event
+     * GET /v1/events/{eventId}/award-categories
+     */
+    public function index(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $eventId = $args['eventId'];
+            $queryParams = $request->getQueryParams();
+            $includeResults = isset($queryParams['include_results']) && $queryParams['include_results'] === 'true';
+
+            // Verify event exists and is an awards event
+            $event = Event::find($eventId);
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            if (!$event->isAwardsEvent()) {
+                return ResponseHelper::error($response, 'This endpoint is only for awards events', 400);
+            }
+
+            // Get categories ordered by display_order
+            $categories = AwardCategory::where('event_id', $eventId)
+                ->ordered()
+                ->get();
+
+            if ($includeResults) {
+                $categoriesData = $categories->map(function ($category) {
+                    return $category->getDetailsWithResults();
+                });
+            } else {
+                $categoriesData = $categories->map(function ($category) {
+                    return [
+                        'id' => $category->id,
+                        'name' => $category->name,
+                        'image' => $category->image,
+                        'description' => $category->description,
+                        'cost_per_vote' => (float) $category->cost_per_vote,
+                        'voting_start' => $category->voting_start?->toIso8601String(),
+                        'voting_end' => $category->voting_end?->toIso8601String(),
+                        'status' => $category->status,
+                        'display_order' => $category->display_order,
+                        'is_voting_active' => $category->isVotingActive(),
+                    ];
+                });
+            }
+
+            return ResponseHelper::success($response, 'Award categories fetched successfully', $categoriesData->toArray());
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch award categories', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single category details
+     * GET /v1/award-categories/{id}
+     */
+    public function show(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+            $queryParams = $request->getQueryParams();
+            $includeResults = isset($queryParams['include_results']) && $queryParams['include_results'] === 'true';
+
+            $category = AwardCategory::with(['event', 'nominees'])->find($id);
+
+            if (!$category) {
+                return ResponseHelper::error($response, 'Award category not found', 404);
+            }
+
+            $categoryData = $includeResults 
+                ? $category->getDetailsWithResults()
+                : [
+                    'id' => $category->id,
+                    'event_id' => $category->event_id,
+                    'name' => $category->name,
+                    'image' => $category->image,
+                    'description' => $category->description,
+                    'cost_per_vote' => (float) $category->cost_per_vote,
+                    'voting_start' => $category->voting_start?->toIso8601String(),
+                    'voting_end' => $category->voting_end?->toIso8601String(),
+                    'status' => $category->status,
+                    'display_order' => $category->display_order,
+                    'is_voting_active' => $category->isVotingActive(),
+                    'created_at' => $category->created_at?->toIso8601String(),
+                    'updated_at' => $category->updated_at?->toIso8601String(),
+                ];
+
+            return ResponseHelper::success($response, 'Award category fetched successfully', $categoryData);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch award category', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Create new award category
+     * POST /v1/events/{eventId}/award-categories
+     */
+    public function create(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $eventId = $args['eventId'];
+            $data = $request->getParsedBody();
+            $user = $request->getAttribute('user');
+
+            // Verify event exists and is an awards event
+            $event = Event::find($eventId);
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            if (!$event->isAwardsEvent()) {
+                return ResponseHelper::error($response, 'Categories can only be added to awards events', 400);
+            }
+
+            // Authorization: Check if user owns the event
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+                }
+            }
+
+            // Validate required fields
+            if (empty($data['name'])) {
+                return ResponseHelper::error($response, 'Category name is required', 400);
+            }
+
+            // Set event_id
+            $data['event_id'] = $eventId;
+
+            // Set defaults
+            if (!isset($data['status'])) {
+                $data['status'] = 'active';
+            }
+
+            if (!isset($data['cost_per_vote'])) {
+                $data['cost_per_vote'] = 1.00;
+            }
+
+            if (!isset($data['display_order'])) {
+                // Get max display order and increment
+                $maxOrder = AwardCategory::where('event_id', $eventId)->max('display_order') ?? 0;
+                $data['display_order'] = $maxOrder + 1;
+            }
+
+            // Validate status
+            if (isset($data['status']) && !in_array($data['status'], ['active', 'deactivated'])) {
+                return ResponseHelper::error($response, 'Invalid status. Must be active or deactivated', 400);
+            }
+
+            $category = AwardCategory::create($data);
+
+            return ResponseHelper::success($response, 'Award category created successfully', $category->toArray(), 201);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to create award category', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update award category
+     * PUT /v1/award-categories/{id}
+     */
+    public function update(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+            $data = $request->getParsedBody();
+            $user = $request->getAttribute('user');
+
+            $category = AwardCategory::find($id);
+
+            if (!$category) {
+                return ResponseHelper::error($response, 'Award category not found', 404);
+            }
+
+            // Authorization: Check if user owns the event
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                $event = $category->event;
+                if (!$organizer || !$event || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this category', 403);
+                }
+            }
+
+            // Validate status if provided
+            if (isset($data['status']) && !in_array($data['status'], ['active', 'deactivated'])) {
+                return ResponseHelper::error($response, 'Invalid status. Must be active or deactivated', 400);
+            }
+
+            // Don't allow changing event_id
+            unset($data['event_id']);
+
+            $category->update($data);
+
+            return ResponseHelper::success($response, 'Award category updated successfully', $category->fresh()->toArray());
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update award category', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete award category
+     * DELETE /v1/award-categories/{id}
+     */
+    public function delete(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+            $user = $request->getAttribute('user');
+
+            $category = AwardCategory::with('event')->find($id);
+
+            if (!$category) {
+                return ResponseHelper::error($response, 'Award category not found', 404);
+            }
+
+            // Authorization: Check if user owns the event
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || !$category->event || $organizer->id !== $category->event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this category', 403);
+                }
+            }
+
+            // Check if category has votes
+            $voteCount = $category->votes()->where('status', 'paid')->count();
+            if ($voteCount > 0) {
+                return ResponseHelper::error($response, 'Cannot delete category with paid votes. Deactivate it instead.', 400);
+            }
+
+            $category->delete();
+
+            return ResponseHelper::success($response, 'Award category deleted successfully');
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to delete award category', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get category statistics
+     * GET /v1/award-categories/{id}/stats
+     */
+    public function getStats(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+
+            $category = AwardCategory::with(['nominees', 'votes'])->find($id);
+
+            if (!$category) {
+                return ResponseHelper::error($response, 'Award category not found', 404);
+            }
+
+            $stats = [
+                'total_nominees' => $category->nominees()->count(),
+                'total_votes' => $category->getTotalVotes(),
+                'total_revenue' => $category->getCategoryTotalRevenue(),
+                'paid_votes' => $category->votes()->where('status', 'paid')->count(),
+                'pending_votes' => $category->votes()->where('status', 'pending')->count(),
+                'is_voting_active' => $category->isVotingActive(),
+                'cost_per_vote' => (float) $category->cost_per_vote,
+            ];
+
+            return ResponseHelper::success($response, 'Category statistics fetched successfully', $stats);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch category statistics', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Reorder categories
+     * POST /v1/events/{eventId}/award-categories/reorder
+     */
+    public function reorder(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $eventId = $args['eventId'];
+            $data = $request->getParsedBody();
+            $user = $request->getAttribute('user');
+
+            // Verify event exists
+            $event = Event::find($eventId);
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Authorization
+            if ($user->role !== 'admin') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized', 403);
+                }
+            }
+
+            // Validate request
+            if (!isset($data['order']) || !is_array($data['order'])) {
+                return ResponseHelper::error($response, 'Order array is required', 400);
+            }
+
+            // Update display_order for each category
+            foreach ($data['order'] as $index => $categoryId) {
+                AwardCategory::where('id', $categoryId)
+                    ->where('event_id', $eventId)
+                    ->update(['display_order' => $index]);
+            }
+
+            $categories = AwardCategory::where('event_id', $eventId)
+                ->ordered()
+                ->get();
+
+            return ResponseHelper::success($response, 'Categories reordered successfully', $categories->toArray());
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to reorder categories', 500, $e->getMessage());
+        }
+    }
+}

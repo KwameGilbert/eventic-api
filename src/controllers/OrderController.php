@@ -248,32 +248,11 @@ class OrderController
             }
 
             // Verify with Paystack
-            $url = "https://api.paystack.co/transaction/verify/" . rawurlencode($reference);
-            
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                "Authorization: Bearer " . $this->paystackSecretKey,
-            ]);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            
-            $result = curl_exec($ch);
-            $err = curl_error($ch);
-            curl_close($ch);
+            $paymentData = $this->verifyPaystackPayment($reference);
 
-            if ($err) {
-                
-                return ResponseHelper::error($response, 'Payment verification failed', 500, $err);
-
-            }
-
-            $paystackResponse = json_decode($result, true);
-
-            if (!$paystackResponse['status']) {
+            if (!$paymentData) {
                 return ResponseHelper::error($response, 'Payment verification failed', 400);
             }
-
-            $paymentData = $paystackResponse['data'];
 
             if ($paymentData['status'] === 'success') {
                 // Payment successful - process the order
@@ -551,6 +530,47 @@ class OrderController
         } catch (Exception $e) {
             DB::rollBack();
             return ResponseHelper::error($response, 'Failed to cancel order', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Verify payment with Paystack API
+     * 
+     * @param string $reference Payment reference
+     * @return array|null Payment data if successful, null if failed
+     */
+    private function verifyPaystackPayment(string $reference): ?array
+    {
+        try {
+            $url = "https://api.paystack.co/transaction/verify/" . rawurlencode($reference);
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                "Authorization: Bearer " . $this->paystackSecretKey,
+            ]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            
+            $result = curl_exec($ch);
+            $err = curl_error($ch);
+            curl_close($ch);
+
+            if ($err) {
+                error_log("Paystack verification error: " . $err);
+                return null;
+            }
+
+            $paystackResponse = json_decode($result, true);
+
+            if (!$paystackResponse || !isset($paystackResponse['status']) || !$paystackResponse['status']) {
+                error_log("Paystack verification failed: Invalid response");
+                return null;
+            }
+
+            return $paystackResponse['data'] ?? null;
+        } catch (Exception $e) {
+            error_log("Paystack verification exception: " . $e->getMessage());
+            return null;
         }
     }
 }

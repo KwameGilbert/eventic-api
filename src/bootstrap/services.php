@@ -23,6 +23,9 @@ use App\Controllers\OrderController;
 use App\Controllers\TicketController;
 use App\Controllers\ScannerController;
 use App\Controllers\PosController;
+use App\Controllers\AwardCategoryController;
+use App\Controllers\AwardNomineeController;
+use App\Controllers\AwardVoteController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
 use App\Middleware\JsonBodyParserMiddleware;
@@ -106,6 +109,18 @@ return function ($container) {
 
     $container->set(PosController::class, function () {
         return new PosController();
+    });
+
+    $container->set(AwardCategoryController::class, function () {
+        return new AwardCategoryController();
+    });
+
+    $container->set(AwardNomineeController::class, function () {
+        return new AwardNomineeController();
+    });
+
+    $container->set(AwardVoteController::class, function () {
+        return new AwardVoteController();
     });
     
     // ==================== MIDDLEWARES ====================
