@@ -28,7 +28,7 @@ class EloquentBootstrap
         $capsule = new Capsule;
 
         // Check environment - default to local if not specified
-        $env = isset($_ENV['ENVIRONMENT']) ? $_ENV['ENVIRONMENT'] : 'development';
+        $env = isset($_ENV['APP_ENV']) ? $_ENV['APP_ENV'] : 'development';
         $prefix = $env === 'production' ? 'PROD_DB_' : 'LOCAL_DB_';
 
         $driver = $_ENV[$prefix . 'DRIVER'] ?? 'mysql';

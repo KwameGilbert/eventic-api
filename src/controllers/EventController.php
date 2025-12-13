@@ -265,6 +265,17 @@ class EventController
                 return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, pending, published, cancelled, completed", 400);
             }
 
+            // Set default event_format if not provided
+            if (!isset($data['event_format'])) {
+                $data['event_format'] = 'ticketing';
+            }
+
+            // Validate event_format value
+            $validFormats = ['ticketing', 'awards'];
+            if (isset($data['event_format']) && !in_array($data['event_format'], $validFormats)) {
+                return ResponseHelper::error($response, "Invalid event_format value. Allowed values: ticketing, awards", 400);
+            }
+
             // Set default location values if not provided
             if (!isset($data['country'])) {
                 $data['country'] = 'Ghana';
@@ -469,6 +480,14 @@ class EventController
                 $validStatuses = [Event::STATUS_DRAFT, Event::STATUS_PENDING, Event::STATUS_PUBLISHED, Event::STATUS_CANCELLED, Event::STATUS_COMPLETED];
                 if (!in_array($data['status'], $validStatuses)) {
                     return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, pending, published, cancelled, completed", 400);
+                }
+            }
+
+            // Validate event_format value if provided
+            if (isset($data['event_format'])) {
+                $validFormats = ['ticketing', 'awards'];
+                if (!in_array($data['event_format'], $validFormats)) {
+                    return ResponseHelper::error($response, "Invalid event_format value. Allowed values: ticketing, awards", 400);
                 }
             }
 
