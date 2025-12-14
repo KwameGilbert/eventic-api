@@ -23,6 +23,7 @@ use App\Controllers\OrderController;
 use App\Controllers\TicketController;
 use App\Controllers\ScannerController;
 use App\Controllers\PosController;
+use App\Controllers\AwardController;
 use App\Controllers\AwardCategoryController;
 use App\Controllers\AwardNomineeController;
 use App\Controllers\AwardVoteController;
@@ -61,6 +62,10 @@ return function ($container) {
 
     $container->set(\App\Services\TemplateEngine::class, function () {
         return new \App\Services\TemplateEngine();
+    });
+
+    $container->set(\App\Services\UploadService::class, function () {
+        return new \App\Services\UploadService();
     });
 
     $container->set(\App\Services\NotificationService::class, function ($container) {
@@ -105,8 +110,10 @@ return function ($container) {
         return new EventController();
     });
 
-    $container->set(EventImageController::class, function () {
-        return new EventImageController();
+    $container->set(EventImageController::class, function ($container) {
+        return new EventImageController(
+            $container->get(\App\Services\UploadService::class)
+        );
     });
 
     $container->set(TicketTypeController::class, function () {
@@ -129,6 +136,12 @@ return function ($container) {
 
     $container->set(PosController::class, function () {
         return new PosController();
+    });
+
+    $container->set(AwardController::class, function ($container) {
+        return new AwardController(
+            $container->get(\App\Services\UploadService::class)
+        );
     });
 
     $container->set(AwardCategoryController::class, function () {

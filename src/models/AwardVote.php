@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $id
  * @property int $nominee_id
  * @property int $category_id
- * @property int $event_id
+ * @property int $award_id
  * @property int $number_of_votes
  * @property string $status
  * @property string $reference
@@ -35,7 +35,7 @@ class AwardVote extends Model
     protected $fillable = [
         'nominee_id',
         'category_id',
-        'event_id',
+        'award_id',
         'number_of_votes',
         'status',
         'reference',
@@ -47,7 +47,7 @@ class AwardVote extends Model
     protected $casts = [
         'nominee_id' => 'integer',
         'category_id' => 'integer',
-        'event_id' => 'integer',
+        'award_id' => 'integer',
         'number_of_votes' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -70,11 +70,11 @@ class AwardVote extends Model
     }
 
     /**
-     * Get the event this vote belongs to.
+     * Get the award that owns this vote.
      */
-    public function event()
+    public function award()
     {
-        return $this->belongsTo(Event::class, 'event_id');
+        return $this->belongsTo(Award::class, 'award_id');
     }
 
     /**
@@ -125,7 +125,7 @@ class AwardVote extends Model
             'id' => $this->id,
             'nominee_id' => $this->nominee_id,
             'category_id' => $this->category_id,
-            'event_id' => $this->event_id,
+            'award_id' => $this->award_id,
             'number_of_votes' => $this->number_of_votes,
             'status' => $this->status,
             'reference' => $this->reference,
@@ -171,11 +171,11 @@ class AwardVote extends Model
     }
 
     /**
-     * Scope to get votes by event.
+     * Scope to filter by award.
      */
-    public function scopeByEvent($query, int $eventId)
+    public function scopeByAward($query, $awardId)
     {
-        return $query->where('event_id', $eventId);
+        return $query->where('award_id', $awardId);
     }
 
     /**

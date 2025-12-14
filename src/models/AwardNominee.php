@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * @property int $id
  * @property int $category_id
- * @property int $event_id
+ * @property int $award_id
  * @property string $name
  * @property string|null $description
  * @property string|null $image
@@ -31,7 +31,7 @@ class AwardNominee extends Model
 
     protected $fillable = [
         'category_id',
-        'event_id',
+        'award_id',
         'name',
         'description',
         'image',
@@ -40,7 +40,7 @@ class AwardNominee extends Model
 
     protected $casts = [
         'category_id' => 'integer',
-        'event_id' => 'integer',
+        'award_id' => 'integer',
         'display_order' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -55,11 +55,11 @@ class AwardNominee extends Model
     }
 
     /**
-     * Get the event that owns this nominee.
+     * Get the award that owns this nominee.
      */
-    public function event()
+    public function award()
     {
-        return $this->belongsTo(Event::class, 'event_id');
+        return $this->belongsTo(Award::class, 'award_id');
     }
 
     /**
@@ -117,7 +117,7 @@ class AwardNominee extends Model
         return [
             'id' => $this->id,
             'category_id' => $this->category_id,
-            'event_id' => $this->event_id,
+            'award_id' => $this->award_id,
             'name' => $this->name,
             'description' => $this->description,
             'image' => $this->image,
@@ -146,10 +146,10 @@ class AwardNominee extends Model
     }
 
     /**
-     * Scope to get nominees by event.
+     * Scope to get nominees for a specific award.
      */
-    public function scopeByEvent($query, int $eventId)
+    public function scopeForAward($query, $awardId)
     {
-        return $query->where('event_id', $eventId);
+        return $query->where('award_id', $awardId);
     }
 }

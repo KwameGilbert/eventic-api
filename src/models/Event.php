@@ -18,7 +18,7 @@ use App\Models\EventReview;
  * @property string $slug
  * @property string|null $description
  * @property int|null $event_type_id
- * @property string $event_format
+
  * @property string|null $venue_name
  * @property string|null $address
  * @property string|null $map_url
@@ -78,9 +78,7 @@ class Event extends Model
     const STATUS_CANCELLED = 'cancelled';
     const STATUS_COMPLETED = 'completed';
 
-    // Event Format Constants
-    const FORMAT_TICKETING = 'ticketing';
-    const FORMAT_AWARDS = 'awards';
+
 
     /**
      * The attributes that are mass assignable.
@@ -90,10 +88,8 @@ class Event extends Model
         'organizer_id',
         'title',
         'slug',
-        'event_format',
         'description',
         'event_type_id',
-        'event_format',
         'venue_name',
         'address',
         'map_url',
@@ -185,30 +181,7 @@ class Event extends Model
         return $this->hasMany(Ticket::class, 'event_id');
     }
 
-    /**
-     * Get the award categories for this event.
-     */
-    public function awardCategories()
-    {
-        return $this->hasMany(AwardCategory::class, 'event_id')
-                    ->orderBy('display_order');
-    }
 
-    /**
-     * Get the award nominees for this event.
-     */
-    public function awardNominees()
-    {
-        return $this->hasMany(AwardNominee::class, 'event_id');
-    }
-
-    /**
-     * Get the award votes for this event.
-     */
-    public function awardVotes()
-    {
-        return $this->hasMany(AwardVote::class, 'event_id');
-    }
 
     /* -----------------------------------------------------------------
      |  Scopes
@@ -252,21 +225,7 @@ class Event extends Model
         return $this->status === self::STATUS_PUBLISHED;
     }
 
-    /**
-     * Check if event is an awards event.
-     */
-    public function isAwardsEvent(): bool
-    {
-        return $this->event_format === self::FORMAT_AWARDS;
-    }
 
-    /**
-     * Check if event is a ticketing event.
-     */
-    public function isTicketingEvent(): bool
-    {
-        return $this->event_format === self::FORMAT_TICKETING || $this->event_format === null;
-    }
 
     /**
      * Get formatted price from lowest ticket type

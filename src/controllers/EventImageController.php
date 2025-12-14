@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Models\EventImage;
 use App\Models\Event;
+use App\Services\UploadService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -17,6 +18,13 @@ use Exception;
  */
 class EventImageController
 {
+    private UploadService $uploadService;
+
+    public function __construct(UploadService $uploadService)
+    {
+        $this->uploadService = $uploadService;
+    }
+
     /**
      * Get all images for an event
      */
@@ -42,16 +50,17 @@ class EventImageController
     }
 
     /**
-     * Add an image to an event
+     * Upload and add images to an event
      */
     public function create(Request $request, Response $response, array $args): Response
     {
         try {
             $data = $request->getParsedBody();
+            $uploadedFiles = $request->getUploadedFiles();
             
             // Validate required fields
-            if (empty($data['event_id']) || empty($data['image_path'])) {
-                return ResponseHelper::error($response, 'Event ID and Image Path are required', 400);
+            if (empty($data['event_id'])) {
+                return ResponseHelper::error($response, 'Event ID is required', 400);
             }
             
             // Verify event exists
@@ -67,12 +76,49 @@ class EventImageController
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
                 }
             }
+
+            // Handle file upload
+            $uploadedImages = [];
             
-            $image = EventImage::create($data);
+            if (isset($uploadedFiles['images'])) {
+                $images = $uploadedFiles['images'];
+                
+                // Handle single or multiple files
+                if (!is_array($images)) {
+                    $images = [$images];
+                }
+
+                foreach ($images as $imageFile) {
+                    if ($imageFile->getError() === UPLOAD_ERR_OK) {
+                        try {
+                            // Upload image using UploadService
+                            $imagePath = $this->uploadService->uploadFile($imageFile, 'image', 'events');
+                            
+                            // Save to database
+                            $eventImage = EventImage::create([
+                                'event_id' => $data['event_id'],
+                                'image_path' => $imagePath
+                            ]);
+                            
+                            $uploadedImages[] = $eventImage->toArray();
+                        } catch (Exception $e) {
+                            // Log error but continue with other uploads
+                            error_log("Failed to upload image: " . $e->getMessage());
+                        }
+                    }
+                }
+            }
+
+            if (empty($uploadedImages)) {
+                return ResponseHelper::error($response, 'No valid images were uploaded', 400);
+            }
             
-            return ResponseHelper::success($response, 'Event image added successfully', $image->toArray(), 201);
+            return ResponseHelper::success($response, 'Event images added successfully', [
+                'images' => $uploadedImages,
+                'count' => count($uploadedImages)
+            ], 201);
         } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to add event image', 500, $e->getMessage());
+            return ResponseHelper::error($response, 'Failed to add event images', 500, $e->getMessage());
         }
     }
 
@@ -99,8 +145,12 @@ class EventImageController
                 }
             }
             
-            // TODO: Add logic to delete physical file if needed
+            // Delete physical file using UploadService
+            if ($image->image_path) {
+                $this->uploadService->deleteFile($image->image_path);
+            }
             
+            // Delete database record
             $image->delete();
             
             return ResponseHelper::success($response, 'Event image deleted successfully');

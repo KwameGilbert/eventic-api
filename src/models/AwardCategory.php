@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
  * Each category can have multiple nominees and votes.
  *
  * @property int $id
- * @property int $event_id
+ * @property int $award_id
  * @property string $name
  * @property string|null $image
  * @property string|null $description
@@ -34,7 +34,7 @@ class AwardCategory extends Model
     public $timestamps = true;
 
     protected $fillable = [
-        'event_id',
+        'award_id',
         'name',
         'image',
         'description',
@@ -46,7 +46,7 @@ class AwardCategory extends Model
     ];
 
     protected $casts = [
-        'event_id' => 'integer',
+        'award_id' => 'integer',
         'cost_per_vote' => 'decimal:2',
         'display_order' => 'integer',
         'voting_start' => 'datetime',
@@ -54,11 +54,11 @@ class AwardCategory extends Model
     ];
 
     /**
-     * Get the event that owns this category.
+     * Get the award that owns this category.
      */
-    public function event()
+    public function award()
     {
-        return $this->belongsTo(Event::class, 'event_id');
+        return $this->belongsTo(Award::class, 'award_id');
     }
 
     /**

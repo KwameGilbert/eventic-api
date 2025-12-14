@@ -17,6 +17,7 @@ return function ($app): void {
         '/v1/tickets' => ROUTE . 'v1/TicketRoute.php',
         '/v1/scanners' => ROUTE . 'v1/ScannerRoute.php',
         '/v1/pos' => ROUTE . 'v1/PosRoute.php',
+        '/v1/awards' => ROUTE . 'v1/AwardRoute.php',
         '/v1/award-categories' => ROUTE . 'v1/AwardCategoryRoute.php',
         '/v1/nominees' => ROUTE . 'v1/AwardNomineeRoute.php',
         '/v1/votes' => ROUTE . 'v1/AwardVoteRoute.php',
