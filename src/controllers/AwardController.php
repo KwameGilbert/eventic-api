@@ -160,6 +160,10 @@ class AwardController
     {
         try {
             $identifier = $args['id'];
+            
+            // Get user info if authenticated (optional for public endpoint)
+            $userRole = $request->getAttribute('user_role');
+            $userId = $request->getAttribute('user_id');
 
             // Try to find by ID first, then by slug
             if (is_numeric($identifier)) {
@@ -177,7 +181,7 @@ class AwardController
             // Increment views
             $award->increment('views');
 
-            return ResponseHelper::success($response, 'Award fetched successfully', $award->getFullDetails());
+            return ResponseHelper::success($response, 'Award fetched successfully', $award->getFullDetails($userRole, $userId));
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch award', 500, $e->getMessage());
         }
@@ -474,6 +478,45 @@ class AwardController
             ]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch leaderboard', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Toggle show_results flag for an award
+     * PUT /v1/awards/{id}/toggle-results
+     */
+    public function toggleShowResults(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $awardId = (int) $args['id'];
+            $userId = $request->getAttribute('user_id');
+            $userRole = $request->getAttribute('user_role');
+
+            // Find the award
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Verify organizer ownership
+            if ($userRole !== 'organizer') {
+                return ResponseHelper::error($response, 'Only organizers can modify award settings', 403);
+            }
+
+            $organizer = Organizer::where('user_id', $userId)->first();
+            if (!$organizer || $award->organizer_id !== $organizer->id) {
+                return ResponseHelper::error($response, 'You do not have permission to modify this award', 403);
+            }
+
+            // Toggle the show_results flag
+            $newValue = $award->toggleShowResults();
+
+            return ResponseHelper::success($response, 'Results visibility updated successfully', [
+                'show_results' => $newValue,
+                'message' => $newValue ? 'Voting results are now visible to the public' : 'Voting results are now hidden from the public'
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to toggle results visibility', 500, $e->getMessage());
         }
     }
 }

@@ -91,6 +91,7 @@ class Award extends Model
         'voting_start',
         'voting_end',
         'status',
+        'show_results',
         'is_featured',
         'country',
         'region',
@@ -113,6 +114,7 @@ class Award extends Model
         'voting_start' => 'datetime',
         'voting_end' => 'datetime',
         'is_featured' => 'boolean',
+        'show_results' => 'boolean',
         'views' => 'integer',
     ];
 
@@ -270,12 +272,33 @@ class Award extends Model
     }
 
     /**
-     * Get award details formatted for frontend.
+     * Toggle show_results flag.
      */
-    public function getFullDetails(): array
+    public function toggleShowResults(): bool
+    {
+        $this->show_results = !$this->show_results;
+        $this->save();
+        return $this->show_results;
+    }
+
+    /**
+     * Get award details formatted for frontend.
+     * @param string|null $userRole User role (organizer, admin, or null for public)
+     * @param int|null $userId User ID for ownership verification
+     */
+    public function getFullDetails(?string $userRole = null, ?int $userId = null): array
     {
         // Load relationships
         $this->load(['organizer.user', 'categories.nominees', 'images']);
+        
+        // Check if user is organizer or admin
+        $isOrganizerOrAdmin = in_array($userRole, ['organizer', 'admin']);
+        
+        // If organizer, verify ownership
+        if ($userRole === 'organizer' && $userId) {
+            $organizer = \App\Models\Organizer::where('user_id', $userId)->first();
+            $isOrganizerOrAdmin = $organizer && $this->organizer_id === $organizer->id;
+        }
 
         $details = [
             'id' => $this->id,
@@ -297,11 +320,10 @@ class Award extends Model
             'mapUrl' => $this->map_url,
             'status' => $this->status,
             'is_featured' => $this->is_featured,
-            'total_votes' => $this->getTotalVotes(),
-            'total_revenue' => $this->getTotalRevenue(),
+            'show_results' => $this->show_results,
             'views' => $this->views,
             'categories' => $this->categories->map(function ($category) {
-                return [
+                $categoryData = [
                     'id' => $category->id,
                     'name' => $category->name,
                     'description' => $category->description,
@@ -313,16 +335,24 @@ class Award extends Model
                     'display_order' => $category->display_order,
                     'is_voting_open' => $category->isVotingOpen(),
                     'nominees' => $category->nominees->map(function ($nominee) {
-                        return [
+                        $nomineeData = [
                             'id' => $nominee->id,
                             'name' => $nominee->name,
                             'description' => $nominee->description,
                             'image' => $nominee->image,
                             'display_order' => $nominee->display_order,
-                            'total_votes' => $nominee->getTotalVotes(),
                         ];
+                        
+                        // Include vote count for everyone if show_results is true
+                        if ($this->show_results) {
+                            $nomineeData['total_votes'] = $nominee->getTotalVotes();
+                        }
+                        
+                        return $nomineeData;
                     })->toArray(),
                 ];
+                
+                return $categoryData;
             })->toArray(),
             'organizer' => null,
             'contact' => [
@@ -351,6 +381,13 @@ class Award extends Model
         // Add images if available
         if ($this->images->count() > 0) {
             $details['images'] = $this->images->pluck('image_path')->toArray();
+        }
+
+        // Add vote statistics - only for organizers/admins
+        if ($isOrganizerOrAdmin) {
+            // Organizers and admins always see stats
+            $details['total_votes'] = $this->getTotalVotes();
+            $details['total_revenue'] = $this->getTotalRevenue();
         }
 
         return $details;

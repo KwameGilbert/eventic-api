@@ -38,6 +38,9 @@ return function (App $app): void {
         // Update award
         $group->put('/{id}', [$awardController, 'update']);
         
+        // Toggle show_results
+        $group->put('/{id}/toggle-results', [$awardController, 'toggleShowResults']);
+        
         // Delete award
         $group->delete('/{id}', [$awardController, 'delete']);
     })->add($authMiddleware);
