@@ -109,69 +109,66 @@ class AwardCategoryController
     }
 
     /**
-     * Create new award category
-     * POST /v1/events/{eventId}/award-categories
-     */
-    public function create(Request $request, Response $response, array $args): Response
-    {
-        try {
-            $eventId = $args['eventId'];
-            $data = $request->getParsedBody();
-            $user = $request->getAttribute('user');
+ * Create new award category
+ * POST /v1/awards/{awardId}/award-categories
+ */
+public function create(Request $request, Response $response, array $args): Response
+{
+    try {
+        $awardId = $args['awardId'] ?? $args['eventId']; // Support both for backward compatibility
+        $data = $request->getParsedBody();
+        $user = $request->getAttribute('user');
 
-            // Verify event exists and is an awards event
-            $event = Event::find($eventId);
-            if (!$event) {
-                return ResponseHelper::error($response, 'Event not found', 404);
-            }
-
-            if (!$event->isAwardsEvent()) {
-                return ResponseHelper::error($response, 'Categories can only be added to awards events', 400);
-            }
-
-            // Authorization: Check if user owns the event
-            if ($user->role !== 'admin') {
-                $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || $organizer->id !== $event->organizer_id) {
-                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
-                }
-            }
-
-            // Validate required fields
-            if (empty($data['name'])) {
-                return ResponseHelper::error($response, 'Category name is required', 400);
-            }
-
-            // Set event_id
-            $data['event_id'] = $eventId;
-
-            // Set defaults
-            if (!isset($data['status'])) {
-                $data['status'] = 'active';
-            }
-
-            if (!isset($data['cost_per_vote'])) {
-                $data['cost_per_vote'] = 1.00;
-            }
-
-            if (!isset($data['display_order'])) {
-                // Get max display order and increment
-                $maxOrder = AwardCategory::where('event_id', $eventId)->max('display_order') ?? 0;
-                $data['display_order'] = $maxOrder + 1;
-            }
-
-            // Validate status
-            if (isset($data['status']) && !in_array($data['status'], ['active', 'deactivated'])) {
-                return ResponseHelper::error($response, 'Invalid status. Must be active or deactivated', 400);
-            }
-
-            $category = AwardCategory::create($data);
-
-            return ResponseHelper::success($response, 'Award category created successfully', $category->toArray(), 201);
-        } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to create award category', 500, $e->getMessage());
+        // Verify award exists
+        $award = \App\Models\Award::find($awardId);
+        if (!$award) {
+            return ResponseHelper::error($response, 'Award not found', 404);
         }
+
+        // Authorization: Check if user owns the award
+        if ($user->role !== 'admin') {
+            $organizer = Organizer::where('user_id', $user->id)->first();
+            if (!$organizer || $organizer->id !== $award->organizer_id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
+            }
+        }
+
+        // Validate required fields
+        if (empty($data['name'])) {
+            return ResponseHelper::error($response, 'Category name is required', 400);
+        }
+
+        // Set award_id
+        $data['award_id'] = $awardId;
+
+        // Set defaults
+        if (!isset($data['status'])) {
+            $data['status'] = 'active';
+        }
+
+        if (!isset($data['cost_per_vote'])) {
+            $data['cost_per_vote'] = 1.00;
+        }
+
+        if (!isset($data['display_order'])) {
+            // Get max display order and increment
+            $maxOrder = AwardCategory::where('award_id', $awardId)->max('display_order') ?? 0;
+            $data['display_order'] = $maxOrder + 1;
+        }
+
+        // Validate status
+        if (isset($data['status']) && !in_array($data['status'], ['active', 'deactivated'])) {
+            return ResponseHelper::error($response, 'Invalid status. Must be active or deactivated', 400);
+        }
+
+        $category = AwardCategory::create($data);
+
+        return ResponseHelper::success($response, 'Award category created successfully', $category->toArray(), 201);
+    } catch (Exception $e) {
+        return ResponseHelper::error($response, 'Failed to create award category', 500, $e->getMessage());
     }
+}
+
 
     /**
      * Update award category

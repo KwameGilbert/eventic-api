@@ -11,6 +11,7 @@ use App\Models\OrderItem;
 use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\User;
+use App\Models\Award;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -300,6 +301,35 @@ class OrganizerController
                 })
                 ->toArray();
 
+            // Auto-update awards to "completed" if ceremony date has passed
+            Award::autoUpdateCompletedStatuses($organizer->id);
+            
+            $upcomingAward = Award::where('organizer_id', $organizer->id)
+                ->where('ceremony_date', '>', Carbon::now())
+                ->where('status', 'published')
+                ->orderBy('ceremony_date', 'asc')
+                ->with(['categories'])
+                ->first();
+
+            $upcomingAwardData = null;
+            if ($upcomingAward) {
+                $totalVotes = $upcomingAward->getTotalVotes();
+                $revenue = $upcomingAward->getTotalRevenue();
+
+                $upcomingAwardData = [
+                    'id' => $upcomingAward->id,
+                    'title' => $upcomingAward->title,
+                    'slug' => $upcomingAward->slug,
+                    'description' => substr($upcomingAward->description ?? '', 0, 150) . '...',
+                    'banner_image' => $upcomingAward->banner_image ??
+                        'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800&h=450&fit=crop',
+                    'ceremony_date' => Carbon::parse($upcomingAward->ceremony_date)->format('M d, Y'),
+                    'venue_name' => $upcomingAward->venue_name ?? 'TBD',
+                    'total_votes' => $totalVotes,
+                    'revenue' => $revenue,
+                ];
+            }
+
             // === ASSEMBLE DASHBOARD DATA ===
             $dashboardData = [
                 'user' => [
@@ -319,6 +349,7 @@ class OrganizerController
                 'activities' => $activities,
                 'recentOrders' => $recentOrders,
                 'upcomingEvent' => $upcomingEventData,
+                'upcomingAward' => $upcomingAwardData,
                 'calendarEvents' => $calendarEvents,
             ];
 
@@ -998,6 +1029,272 @@ class OrganizerController
             return ResponseHelper::success($response, 'Order details fetched successfully', $orderDetails);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch order details', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get all awards for the authenticated organizer
+     * Returns awards with stats, status counts, and award details
+     * GET /v1/organizers/data/awards
+     */
+    public function getAwards(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Get organizer profile
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            // Get all awards for this organizer with related data
+            $awards = Award::where('organizer_id', $organizer->id)
+                ->with(['categories', 'images', 'votes'])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            // Auto-update awards to "completed" if ceremony date has passed
+            // Using the reusable static method from Award model
+            Award::autoUpdateCompletedStatuses($organizer->id);
+
+            // Calculate status counts
+            // Statuses are enum values: draft, completed, published, closed
+            $now = Carbon::now();
+            $statusCounts = [
+                'all' => $awards->count(),
+                'published' => $awards->where('status', 'published')->count(),
+                'draft' => $awards->where('status', 'draft')->count(),
+                'completed' => $awards->where('status', 'completed')->count(),
+                'closed' => $awards->where('status', 'closed')->count(),
+                // Voting Open is a computed count (published awards with active voting)
+                'voting_open' => $awards->filter(function ($award) use ($now) {
+                    return $award->status === 'published' &&
+                        $award->voting_start &&
+                        $award->voting_end &&
+                        $award->voting_start <= $now &&
+                        $award->voting_end >= $now;
+                })->count(),
+            ];
+
+            // Format awards for frontend
+            $formattedAwards = $awards->map(function ($award) use ($now) {
+                // Count categories
+                $categoriesCount = $award->categories->count();
+
+                // Calculate total votes
+                $totalVotes = $award->getTotalVotes();
+
+                // Calculate revenue
+                $revenue = $award->getTotalRevenue();
+
+                // Determine voting status ONLY (separate from status)
+                // Voting status is only relevant for published awards
+                $votingStatus = null;
+                if ($award->status === 'published') {
+                    if ($award->voting_start && $award->voting_end) {
+                        if ($award->voting_start <= $now && $award->voting_end >= $now) {
+                            $votingStatus = 'Voting Open';
+                        } elseif ($now < $award->voting_start) {
+                            $votingStatus = 'Not Started';
+                        } elseif ($now > $award->voting_end) {
+                            $votingStatus = 'Voting Closed';
+                        }
+                    }
+                }
+
+                // Keep status as-is from database (enum: draft, completed, published, closed)
+                // DO NOT modify the status based on dates
+                $status = $award->status;
+
+                // Get banner image with fallback
+                $bannerImage = $award->banner_image;
+                if (!$bannerImage && $award->images && $award->images->count() > 0) {
+                    $bannerImage = $award->images->first()->image_path ?? null;
+                }
+                if (!$bannerImage) {
+                    $bannerImage = 'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800&h=450&fit=crop';
+                }
+
+                return [
+                    'id' => $award->id,
+                    'title' => $award->title,
+                    'slug' => $award->slug,
+                    'banner_image' => $bannerImage,
+                    'image' => $bannerImage, // Fallback field for frontend compatibility
+                    'status' => ucfirst($status), // Capitalize enum value: Draft, Completed, Published, Closed
+                    'voting_status' => $votingStatus, // Voting Open, Not Started, Voting Closed, or null
+                    'ceremony_date' => $award->ceremony_date ? Carbon::parse($award->ceremony_date)->format('M d, Y') : null,
+                    'venue_name' => $award->venue_name ?? 'TBD',
+                    'address' => $award->address,
+                    'categories_count' => $categoriesCount,
+                    'total_votes' => $totalVotes,
+                    'revenue' => (float) $revenue,
+                    'createdAt' => $award->created_at->format('M d, Y'),
+                ];
+            })->toArray();
+
+            // Build stats array
+            $stats = [
+                ['label' => 'Total Awards', 'value' => (string) $statusCounts['all'], 'icon' => 'Trophy', 'color' => '#8b5cf6'],
+                ['label' => 'Published', 'value' => (string) $statusCounts['published'], 'icon' => 'Calendar', 'color' => '#10b981'],
+                ['label' => 'Voting Open', 'value' => (string) $statusCounts['voting_open'], 'icon' => 'Award', 'color' => '#06b6d4'],
+                ['label' => 'Completed', 'value' => (string) $statusCounts['completed'], 'icon' => 'TrendingUp', 'color' => '#f59e0b'],
+            ];
+
+            // Build tabs array with counts
+            $tabs = [
+                ['id' => 'all', 'label' => 'All', 'count' => $statusCounts['all']],
+                ['id' => 'published', 'label' => 'Published', 'count' => $statusCounts['published']],
+                ['id' => 'draft', 'label' => 'Draft', 'count' => $statusCounts['draft']],
+                ['id' => 'voting open', 'label' => 'Voting Open', 'count' => $statusCounts['voting_open']], // Computed
+                ['id' => 'completed', 'label' => 'Completed', 'count' => $statusCounts['completed']],
+                ['id' => 'closed', 'label' => 'Closed', 'count' => $statusCounts['closed']],
+            ];
+
+            return ResponseHelper::success($response, 'Awards fetched successfully', [
+                'awards' => $formattedAwards,
+                'stats' => $stats,
+                'tabs' => $tabs,
+                'statusCounts' => $statusCounts,
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch awards', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get detailed award data for the organizer's View Award page
+     * Includes stats, categories, nominees, voting analytics, etc.
+     * GET /v1/organizers/data/awards/{id}
+     */
+    public function getAwardDetails(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $awardId = $args['id'];
+
+            // Get organizer profile
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            // Auto-update awards to "completed" if ceremony date has passed
+            Award::autoUpdateCompletedStatuses($organizer->id);
+
+            // Get the award with relationships
+            $award = Award::with(['organizer.user', 'categories.nominees', 'images'])
+                ->where('id', $awardId)
+                ->first();
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Authorization: Check if organizer owns this award
+            if ($jwtUser->role !== 'admin' && $award->organizer_id !== $organizer->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
+            }
+
+            // === GET BASE AWARD DETAILS FROM MODEL ===
+            $awardData = $award->getFullDetails('organizer', $jwtUser->id);
+
+            // === ADD ORGANIZER-SPECIFIC STATS ===
+            $totalCategories = $award->categories->count();
+            $totalNominees = $award->nominees()->count();
+            $totalVotes = $award->getTotalVotes();
+            $revenue = $award->getTotalRevenue();
+
+            // Count unique voters (by email since award_votes doesn't have user_id)
+            $uniqueVoters = \App\Models\AwardVote::where('award_id', $awardId)
+                ->where('status', 'paid')
+                ->whereNotNull('voter_email')
+                ->distinct()
+                ->count('voter_email');
+
+            $stats = [
+                'total_categories' => $totalCategories,
+                'total_nominees' => $totalNominees,
+                'total_votes' => $totalVotes,
+                'revenue' => $revenue,
+                'unique_voters' => $uniqueVoters,
+            ];
+
+            // === GET CATEGORIES WITH STATS ===
+            $categories = $award->categories->map(function ($category) {
+                return [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'description' => $category->description,
+                    'image' => $category->image,
+                    'cost_per_vote' => (float) $category->cost_per_vote,
+                    'nominees_count' => $category->nominees->count(),
+                    'total_votes' => $category->getTotalVotes(),
+                    'revenue' => $category->getTotalVotes() * $category->cost_per_vote,
+                    'voting_start' => $category->voting_start ? Carbon::parse($category->voting_start)->toIso8601String() : null,
+                    'voting_end' => $category->voting_end ? Carbon::parse($category->voting_end)->toIso8601String() : null,
+                    'is_voting_open' => $category->isVotingOpen(),
+                    // Include nominees array
+                    'nominees' => $category->nominees->map(function ($nominee) {
+                        return [
+                            'id' => $nominee->id,
+                            'name' => $nominee->name,
+                            'description' => $nominee->description,
+                            'image' => $nominee->image,
+                            'total_votes' => $nominee->getTotalVotes(),
+                            'display_order' => $nominee->display_order,
+                        ];
+                    })->toArray(),
+                ];
+            })->toArray();
+
+            // === GET RECENT VOTES ===
+            $recentVotes = \App\Models\AwardVote::where('award_id', $awardId)
+                ->where('status', 'paid')
+                ->with(['nominee.category'])
+                ->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get()
+                ->map(function ($vote) {
+                    return [
+                        'id' => $vote->id,
+                        'voter' => $vote->voter_name ?? 'Anonymous',
+                        'nominee' => $vote->nominee ? $vote->nominee->name : 'Unknown',
+                        'category' => $vote->nominee && $vote->nominee->category ? $vote->nominee->category->name : 'Unknown',
+                        'votes' => $vote->number_of_votes,
+                        'amount' => $vote->getTotalAmount(),
+                        'created_at' => $vote->created_at ? $vote->created_at->format('M d, Y g:i A') : null,
+                    ];
+                })->toArray();
+
+            // === VOTE ANALYTICS (Last 7 days) ===
+            $voteAnalytics = [];
+            for ($i = 6; $i >= 0; $i--) {
+                $date = Carbon::now()->subDays($i);
+                $dayName = $date->format('D');
+
+                $dayVotes = \App\Models\AwardVote::where('award_id', $awardId)
+                    ->where('status', 'paid')
+                    ->whereDate('created_at', $date->toDateString())
+                    ->sum('number_of_votes');
+
+                $voteAnalytics[] = [
+                    'day' => $dayName,
+                    'votes' => (int) $dayVotes
+                ];
+            }
+
+            // === ASSEMBLE COMPREHENSIVE DATA ===
+            $awardData['stats'] = $stats;
+            $awardData['categories'] = $categories;
+            $awardData['recent_votes'] = $recentVotes;
+            $awardData['vote_analytics'] = $voteAnalytics;
+
+            return ResponseHelper::success($response, 'Award details fetched successfully', $awardData);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch award details', 500, $e->getMessage());
         }
     }
 }

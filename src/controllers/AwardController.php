@@ -24,7 +24,28 @@ class AwardController
     public function __construct(UploadService $uploadService)
     {
         $this->uploadService = $uploadService;
+        Award::autoUpdateCompletedStatuses();
     }
+
+    /**
+     * Generate a unique slug by appending random alphanumeric string if duplicate exists
+     * @param string $baseSlug The base slug to make unique
+     * @return string Unique slug
+     */
+    private function generateUniqueSlug(string $baseSlug): string
+    {
+        $slug = $baseSlug;
+        
+        // Keep generating until we find a unique slug
+        while (Award::where('slug', $slug)->exists()) {
+            // Generate random 10-character alphanumeric string
+            $randomSuffix = substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyz'), 0, 10);
+            $slug = $baseSlug . '-' . $randomSuffix;
+        }
+        
+        return $slug;
+    }
+
     /**
      * Get all awards (with optional filtering)
      * GET /v1/awards
@@ -217,10 +238,16 @@ class AwardController
                 }
             }
 
+
             // Generate slug if not provided
             if (empty($data['slug'])) {
-                $data['slug'] = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
+                $baseSlug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
+                $data['slug'] = $this->generateUniqueSlug($baseSlug);
+            } else {
+                // Even if slug is provided, ensure it's unique
+                $data['slug'] = $this->generateUniqueSlug($data['slug']);
             }
+
 
             // Set default status if not provided
             if (!isset($data['status'])) {
@@ -253,7 +280,13 @@ class AwardController
                     } catch (Exception $e) {
                         return ResponseHelper::error($response, $e->getMessage(), 400);
                     }
+                } else {
+                    // Ensure banner_image is null if upload failed or not provided
+                    $data['banner_image'] = null;
                 }
+            } else {
+                // Ensure banner_image is null if not provided
+                $data['banner_image'] = null;
             }
 
             $award = Award::create($data);
@@ -310,8 +343,16 @@ class AwardController
 
             // Update slug if title changes and slug isn't manually provided
             if (isset($data['title']) && !isset($data['slug'])) {
-                $data['slug'] = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
+                $baseSlug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $data['title'])));
+                // Only generate unique slug if it's different from current slug
+                if ($baseSlug !== $award->slug) {
+                    $data['slug'] = $this->generateUniqueSlug($baseSlug);
+                }
+            } elseif (isset($data['slug']) && $data['slug'] !== $award->slug) {
+                // If slug is manually provided and different, ensure it's unique
+                $data['slug'] = $this->generateUniqueSlug($data['slug']);
             }
+
 
             // Validate status value if provided
             if (isset($data['status'])) {

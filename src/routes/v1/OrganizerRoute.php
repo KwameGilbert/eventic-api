@@ -39,6 +39,12 @@ return function (App $app): void {
         // Order Details - fetch single order details
         $group->get('/data/orders/{id}', [$organizerController, 'getOrderDetails']);
 
+        // Awards - fetch all awards for the organizer
+        $group->get('/data/awards', [$organizerController, 'getAwards']);
+        
+        // Award Details - fetch detailed data for a single award
+        $group->get('/data/awards/{id}', [$organizerController, 'getAwardDetails']);
+
         // CRUD operations
         $group->post('', [$organizerController, 'create']);
         $group->put('/{id}', [$organizerController, 'update']);

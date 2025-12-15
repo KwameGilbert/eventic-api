@@ -54,6 +54,12 @@ class UploadService
             'max_size' => 2 * 1024 * 1024, // 2MB
             'directory' => 'avatars',
         ],
+        'nominee' => [
+            'mimes' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg'],
+            'extensions' => ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            'max_size' => 2 * 1024 * 1024, // 2MB
+            'directory' => 'nominees',
+        ],
     ];
 
     public function __construct()

@@ -20,10 +20,20 @@ $sslMode = $_ENV[$prefix . 'SSL'] ?? null;
 
 $caPath = null;
 if ($caCertificate) {
-    if (file_exists($caCertificate)) {
-        $caPath = $caCertificate;
-    } elseif (file_exists(__DIR__ . '/' . $caCertificate)) {
-        $caPath = realpath(__DIR__ . '/' . $caCertificate);
+    // Check if it's certificate content (starts with -----BEGIN CERTIFICATE-----)
+    if (strpos($caCertificate, '-----BEGIN CERTIFICATE-----') !== false) {
+        // Certificate content is in the environment variable
+        // Create a temporary file for the certificate
+        $tempCertFile = sys_get_temp_dir() . '/db_ca_cert.pem';
+        file_put_contents($tempCertFile, $caCertificate);
+        $caPath = $tempCertFile;
+    } else {
+        // It's a file path
+        if (file_exists($caCertificate)) {
+            $caPath = $caCertificate;
+        } elseif (file_exists(__DIR__ . '/' . $caCertificate)) {
+            $caPath = realpath(__DIR__ . '/' . $caCertificate);
+        }
     }
 }
 
@@ -38,31 +48,41 @@ $developmentConfig = [
     'charset' => $_ENV['LOCAL_DB_CHARSET'] ?? 'utf8mb4',
 ];
 
-// Build base connection config for production (PostgreSQL with SSL)
+// Build base connection config for production (MySQL)
 $productionConfig = [
-    'adapter' => $_ENV['PROD_DB_DRIVER'] ?? $_ENV['PROD_DB_ADAPTER'] ?? 'pgsql',
+    'adapter' => $_ENV['PROD_DB_DRIVER'] ?? $_ENV['PROD_DB_ADAPTER'] ?? 'mysql',
     'host' => $_ENV['PROD_DB_HOST'],
     'name' => $_ENV['PROD_DB_DATABASE'],
     'user' => $_ENV['PROD_DB_USERNAME'],
     'pass' => $_ENV['PROD_DB_PASSWORD'],
     'port' => $_ENV['PROD_DB_PORT'],
-    'charset' => 'utf8',
+    'charset' => 'utf8',    
 ];
 
-// Add SSL for production PostgreSQL
+// Add SSL for production MySQL
 $prodCaCert = $_ENV['PROD_DB_CA_CERTIFICATE'] ?? null;
 $prodSslMode = $_ENV['PROD_DB_SSL'] ?? 'require';
 
 if ($prodCaCert) {
-    $prodCaPath = null;
-    if (file_exists($prodCaCert)) {
-        $prodCaPath = $prodCaCert;
-    } elseif (file_exists(__DIR__ . '/' . $prodCaCert)) {
-        $prodCaPath = realpath(__DIR__ . '/' . $prodCaCert);
-    }
-
-    if ($prodCaPath) {
-        $productionConfig['ssl_ca'] = $prodCaPath;
+    // Check if it's certificate content (starts with -----BEGIN CERTIFICATE-----)
+    if (strpos($prodCaCert, '-----BEGIN CERTIFICATE-----') !== false) {
+        // Certificate content is in the environment variable
+        // Create a temporary file for the certificate
+        $tempCertFile = sys_get_temp_dir() . '/phinx_ca_cert.pem';
+        file_put_contents($tempCertFile, $prodCaCert);
+        $productionConfig['ssl_ca'] = $tempCertFile;
+    } else {
+        // It's a file path
+        $prodCaPath = null;
+        if (file_exists($prodCaCert)) {
+            $prodCaPath = $prodCaCert;
+        } elseif (file_exists(__DIR__ . '/' . $prodCaCert)) {
+            $prodCaPath = realpath(__DIR__ . '/' . $prodCaCert);
+        }
+        
+        if ($prodCaPath) {
+            $productionConfig['ssl_ca'] = $prodCaPath;
+        }
     }
 }
 

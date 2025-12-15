@@ -62,16 +62,25 @@ class EloquentBootstrap
         $sslMode = $_ENV[$prefix . 'SSL'] ?? null;
 
         if ($caCertificate || $sslMode) {
-            // Resolve CA certificate path
+            // Resolve CA certificate path or content
             $caPath = null;
             if ($caCertificate) {
-                // Check if absolute path exists, otherwise look relative to project root
-                if (file_exists($caCertificate)) {
-                    $caPath = $caCertificate;
-                } elseif (file_exists(__DIR__ . '/../../' . $caCertificate)) {
-                    $caPath = realpath(__DIR__ . '/../../' . $caCertificate);
-                } elseif (file_exists(__DIR__ . '/' . $caCertificate)) {
-                    $caPath = realpath(__DIR__ . '/' . $caCertificate);
+                // Check if it's certificate content (starts with -----BEGIN CERTIFICATE-----)
+                if (strpos($caCertificate, '-----BEGIN CERTIFICATE-----') !== false) {
+                    // Certificate content is in the environment variable
+                    // Create a temporary file for the certificate
+                    $tempCertFile = sys_get_temp_dir() . '/eloquent_ca_cert.pem';
+                    file_put_contents($tempCertFile, $caCertificate);
+                    $caPath = $tempCertFile;
+                } else {
+                    // It's a file path - check if absolute path exists, otherwise look relative to project root
+                    if (file_exists($caCertificate)) {
+                        $caPath = $caCertificate;
+                    } elseif (file_exists(__DIR__ . '/../../' . $caCertificate)) {
+                        $caPath = realpath(__DIR__ . '/../../' . $caCertificate);
+                    } elseif (file_exists(__DIR__ . '/' . $caCertificate)) {
+                        $caPath = realpath(__DIR__ . '/' . $caCertificate);
+                    }
                 }
             }
 

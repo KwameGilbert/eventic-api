@@ -12,23 +12,24 @@ class Database
     private $password;
     private $ssl;
     private $charset;
+    private $prefix;
     public $conn;
 
     public function __construct()
     {
         // Check environment - default to local if not specified
         $env = isset($_ENV['ENVIRONMENT']) ? $_ENV['ENVIRONMENT'] : 'development';
-        $prefix = $env === 'production' ? 'PROD_DB_' : 'LOCAL_DB_';
+        $this->prefix = $env === 'production' ? 'PROD_DB_' : 'LOCAL_DB_';
         
         // Set database connection parameters based on environment
-        $this->host     = $_ENV[$prefix . 'HOST'];
-        $this->port     = $_ENV[$prefix . 'PORT'];
-        $this->db_name  = $_ENV[$prefix . 'DATABASE'];
-        $this->username = $_ENV[$prefix . 'USERNAME'];
-        $this->password = $_ENV[$prefix . 'PASSWORD'];
-        $this->driver   = $_ENV[$prefix . 'DRIVER'];
-        $this->ssl      = $_ENV[$prefix . 'SSL'] === 'true';
-        $this->charset  = $_ENV[$prefix . 'CHARSET'] ?? 'utf8mb4';
+        $this->host     = $_ENV[$this->prefix . 'HOST'];
+        $this->port     = $_ENV[$this->prefix . 'PORT'];
+        $this->db_name  = $_ENV[$this->prefix . 'DATABASE'];
+        $this->username = $_ENV[$this->prefix . 'USERNAME'];
+        $this->password = $_ENV[$this->prefix . 'PASSWORD'];
+        $this->driver   = $_ENV[$this->prefix . 'DRIVER'];
+        $this->ssl      = $_ENV[$this->prefix . 'SSL'] === 'true';
+        $this->charset  = $_ENV[$this->prefix . 'CHARSET'] ?? 'utf8mb4';
     }
 
     public function getConnection()
@@ -49,12 +50,42 @@ class Database
             if ($this->ssl) {
                 if ($this->driver === 'pgsql') {
                     // For PostgreSQL
-                    // Use the connection string approach for SSL
                     $dsn .= ";sslmode=require";
+                    
+                    // Handle CA certificate if provided
+                    $caCert = $_ENV[$this->prefix . 'CA_CERTIFICATE'] ?? null;
+                    if ($caCert) {
+                        if (strpos($caCert, '-----BEGIN CERTIFICATE-----') !== false) {
+                            // Certificate content in env variable
+                            $tempCertFile = sys_get_temp_dir() . '/db_ca_cert.pem';
+                            file_put_contents($tempCertFile, $caCert);
+                            $dsn .= ";sslrootcert={$tempCertFile}";
+                        } else {
+                            // File path
+                            $certPath = file_exists($caCert) ? $caCert : __DIR__ . '/../../' . $caCert;
+                            if (file_exists($certPath)) {
+                                $dsn .= ";sslrootcert={$certPath}";
+                            }
+                        }
+                    }
                 } else if ($this->driver === 'mysql') {
                     // For MySQL
-                    $options[\PDO::MYSQL_ATTR_SSL_CA] = __DIR__ . '/ca.pem'; // Update with your certificate path if needed
-                    $options[\PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+                    $caCert = $_ENV[$this->prefix . 'CA_CERTIFICATE'] ?? null;
+                    if ($caCert) {
+                        if (strpos($caCert, '-----BEGIN CERTIFICATE-----') !== false) {
+                            // Certificate content in env variable
+                            $tempCertFile = sys_get_temp_dir() . '/db_ca_cert.pem';
+                            file_put_contents($tempCertFile, $caCert);
+                            $options[\PDO::MYSQL_ATTR_SSL_CA] = $tempCertFile;
+                        } else {
+                            // File path
+                            $certPath = file_exists($caCert) ? $caCert : __DIR__ . '/../../' . $caCert;
+                            if (file_exists($certPath)) {
+                                $options[\PDO::MYSQL_ATTR_SSL_CA] = $certPath;
+                            }
+                        }
+                        $options[\PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+                    }
                 }
             }
             

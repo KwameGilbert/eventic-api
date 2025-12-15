@@ -316,7 +316,7 @@ class Award extends Model
             'voting_end' => $this->voting_end ? $this->voting_end->toIso8601String() : null,
             'is_voting_open' => $this->isVotingOpen(),
             'is_voting_closed' => $this->isVotingClosed(),
-            'image' => $this->banner_image,
+            'image' => $this->banner_image ?? '',
             'mapUrl' => $this->map_url,
             'status' => $this->status,
             'is_featured' => $this->is_featured,
@@ -407,11 +407,45 @@ class Award extends Model
             'ceremony_date' => $this->ceremony_date ? $this->ceremony_date->format('Y-m-d') : null,
             'ceremony_time' => $this->ceremony_date ? $this->ceremony_date->format('g:i A') : null,
             'is_voting_open' => $this->isVotingOpen(),
-            'image' => $this->banner_image,
+            'image' => $this->banner_image ?? '',
             'status' => $this->status,
             'is_featured' => $this->is_featured,
             'categories_count' => $this->categories()->count(),
             'total_votes' => $this->getTotalVotes(),
         ];
+    }
+
+    /**
+     * Automatically update published awards to "completed" if ceremony date has passed.
+     * This method can be called from anywhere to ensure awards have the correct status.
+     * 
+     * @param int|null $organizerId Optional organizer ID to limit updates to specific organizer
+     * @return int Number of awards updated
+     */
+    public static function autoUpdateCompletedStatuses(?int $organizerId = null): int
+    {
+        $now = \Illuminate\Support\Carbon::now();
+        
+        // Build query for published awards with past ceremony dates
+        $query = self::where('status', self::STATUS_PUBLISHED)
+            ->whereNotNull('ceremony_date')
+            ->where('ceremony_date', '<', $now);
+        
+        // Optionally filter by organizer
+        if ($organizerId !== null) {
+            $query->where('organizer_id', $organizerId);
+        }
+        
+        // Get awards that need updating
+        $awards = $query->get();
+        
+        $updatedCount = 0;
+        foreach ($awards as $award) {
+            $award->status = self::STATUS_COMPLETED;
+            $award->save();
+            $updatedCount++;
+        }
+        
+        return $updatedCount;
     }
 }

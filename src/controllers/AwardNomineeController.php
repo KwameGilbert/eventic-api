@@ -9,12 +9,19 @@ use App\Models\AwardNominee;
 use App\Models\AwardCategory;
 use App\Models\Event;
 use App\Models\Organizer;
+use App\Services\UploadService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Exception;
 
 class AwardNomineeController
 {
+    private UploadService $uploadService;
+
+    public function __construct(UploadService $uploadService)
+    {
+        $this->uploadService = $uploadService;
+    }
     /**
      * Get all nominees for a category
      * GET /v1/award-categories/{categoryId}/nominees
@@ -153,91 +160,65 @@ class AwardNomineeController
     }
 
     /**
-     * Create new nominee
-     * POST /v1/award-categories/{categoryId}/nominees
-     */
-    public function create(Request $request, Response $response, array $args): Response
-    {
-        try {
-            $categoryId = $args['categoryId'];
-            $data = $request->getParsedBody();
-            $user = $request->getAttribute('user');
-            $uploadedFiles = $request->getUploadedFiles();
+ * Create new nominee
+ * POST /v1/award-categories/{categoryId}/nominees
+ */
+public function create(Request $request, Response $response, array $args): Response
+{
+    try {
+        $categoryId = $args['categoryId'];
+        $data = $request->getParsedBody();
+        $user = $request->getAttribute('user');
+        $uploadedFiles = $request->getUploadedFiles();
 
-            // Verify category exists
-            $category = AwardCategory::with('event')->find($categoryId);
-            if (!$category) {
-                return ResponseHelper::error($response, 'Award category not found', 404);
-            }
-
-            // Authorization: Check if user owns the event
-            if ($user->role !== 'admin') {
-                $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || !$category->event || $organizer->id !== $category->event->organizer_id) {
-                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
-                }
-            }
-
-            // Validate required fields
-            if (empty($data['name'])) {
-                return ResponseHelper::error($response, 'Nominee name is required', 400);
-            }
-
-            // Set category_id and event_id
-            $data['category_id'] = $categoryId;
-            $data['event_id'] = $category->event_id;
-
-            // Set default display_order
-            if (!isset($data['display_order'])) {
-                $maxOrder = AwardNominee::where('category_id', $categoryId)->max('display_order') ?? 0;
-                $data['display_order'] = $maxOrder + 1;
-            }
-
-            // Handle image upload
-            if (isset($uploadedFiles['image'])) {
-                $image = $uploadedFiles['image'];
-
-                if ($image->getError() === UPLOAD_ERR_OK) {
-                    // Validate file type
-                    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                    $mimeType = $image->getClientMediaType();
-
-                    if (!in_array($mimeType, $allowedTypes)) {
-                        return ResponseHelper::error($response, 'Invalid image type. Allowed: JPEG, PNG, GIF, WebP', 400);
-                    }
-
-                    // Validate file size (max 5MB)
-                    if ($image->getSize() > 5 * 1024 * 1024) {
-                        return ResponseHelper::error($response, 'Image size must be less than 5MB', 400);
-                    }
-
-                    // Create upload directory
-                    $uploadDir = dirname(__DIR__, 2) . '/public/uploads/nominees';
-                    if (!is_dir($uploadDir)) {
-                        mkdir($uploadDir, 0755, true);
-                    }
-
-                    // Generate unique filename
-                    $extension = pathinfo($image->getClientFilename(), PATHINFO_EXTENSION);
-                    $filename = 'nominee_' . uniqid() . '_' . time() . '.' . $extension;
-                    $filepath = $uploadDir . '/' . $filename;
-
-                    // Move uploaded file
-                    $image->moveTo($filepath);
-
-                    // Store relative path
-                    $data['image'] = '/uploads/nominees/' . $filename;
-                }
-            }
-
-            $nominee = AwardNominee::create($data);
-
-            return ResponseHelper::success($response, 'Nominee created successfully', $nominee->toArray(), 201);
-        } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to create nominee', 500, $e->getMessage());
+        // Verify category exists
+        $category = AwardCategory::with('award')->find($categoryId);
+        if (!$category) {
+            return ResponseHelper::error($response, 'Award category not found', 404);
         }
-    }
 
+        // Authorization: Check if user owns the award
+        if ($user->role !== 'admin') {
+            $organizer = Organizer::where('user_id', $user->id)->first();
+            if (!$organizer || !$category->award || $organizer->id !== $category->award->organizer_id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
+            }
+        }
+
+        // Validate required fields
+        if (empty($data['name'])) {
+            return ResponseHelper::error($response, 'Nominee name is required', 400);
+        }
+
+        // Set category_id and award_id
+        $data['category_id'] = $categoryId;
+        $data['award_id'] = $category->award_id;
+
+        // Set default display_order
+        if (!isset($data['display_order'])) {
+            $maxOrder = AwardNominee::where('category_id', $categoryId)->max('display_order') ?? 0;
+            $data['display_order'] = $maxOrder + 1;
+        }
+
+        // Handle image upload using UploadService
+        if (isset($uploadedFiles['image'])) {
+            $image = $uploadedFiles['image'];
+            if ($image->getError() === UPLOAD_ERR_OK) {
+                try {
+                    $data['image'] = $this->uploadService->uploadFile($image, 'image', 'nominees');
+                } catch (Exception $e) {
+                    return ResponseHelper::error($response, $e->getMessage(), 400);
+                }
+            }
+        }
+
+        $nominee = AwardNominee::create($data);
+
+        return ResponseHelper::success($response, 'Nominee created successfully', $nominee->toArray(), 201);
+    } catch (Exception $e) {
+        return ResponseHelper::error($response, 'Failed to create nominee', 500, $e->getMessage());
+    }
+}
     /**
      * Update nominee
      * PUT /v1/nominees/{id}
@@ -250,56 +231,38 @@ class AwardNomineeController
             $user = $request->getAttribute('user');
             $uploadedFiles = $request->getUploadedFiles();
 
-            $nominee = AwardNominee::with(['category.event'])->find($id);
+            $nominee = AwardNominee::with(['category.award'])->find($id);
 
             if (!$nominee) {
                 return ResponseHelper::error($response, 'Nominee not found', 404);
             }
 
-            // Authorization: Check if user owns the event
+            // Authorization: Check if user owns the award
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                $event = $nominee->category ? $nominee->category->event : null;
-                if (!$organizer || !$event || $organizer->id !== $event->organizer_id) {
+                $award = $nominee->category ? $nominee->category->award : null;
+                if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this nominee', 403);
                 }
             }
 
-            // Don't allow changing category_id or event_id
-            unset($data['category_id'], $data['event_id']);
+            // Don't allow changing category_id or award_id
+            unset($data['category_id'], $data['award_id']);
 
-            // Handle image upload
+            // Handle image upload using UploadService
             if (isset($uploadedFiles['image'])) {
                 $image = $uploadedFiles['image'];
-
                 if ($image->getError() === UPLOAD_ERR_OK) {
-                    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                    $mimeType = $image->getClientMediaType();
-
-                    if (!in_array($mimeType, $allowedTypes)) {
-                        return ResponseHelper::error($response, 'Invalid image type', 400);
+                    try {
+                        $data['image'] = $this->uploadService->replaceFile(
+                            $image,
+                            $nominee->image,
+                            'image',
+                            'nominees'
+                        );
+                    } catch (Exception $e) {
+                        return ResponseHelper::error($response, $e->getMessage(), 400);
                     }
-
-                    if ($image->getSize() > 5 * 1024 * 1024) {
-                        return ResponseHelper::error($response, 'Image size must be less than 5MB', 400);
-                    }
-
-                    $uploadDir = dirname(__DIR__, 2) . '/public/uploads/nominees';
-                    if (!is_dir($uploadDir)) {
-                        mkdir($uploadDir, 0755, true);
-                    }
-
-                    // Delete old image if exists
-                    if ($nominee->image && file_exists(dirname(__DIR__, 2) . '/public' . $nominee->image)) {
-                        unlink(dirname(__DIR__, 2) . '/public' . $nominee->image);
-                    }
-
-                    $extension = pathinfo($image->getClientFilename(), PATHINFO_EXTENSION);
-                    $filename = 'nominee_' . uniqid() . '_' . time() . '.' . $extension;
-                    $filepath = $uploadDir . '/' . $filename;
-
-                    $image->moveTo($filepath);
-                    $data['image'] = '/uploads/nominees/' . $filename;
                 }
             }
 
@@ -321,7 +284,7 @@ class AwardNomineeController
             $id = $args['id'];
             $user = $request->getAttribute('user');
 
-            $nominee = AwardNominee::with(['category.event'])->find($id);
+            $nominee = AwardNominee::with(['category.award'])->find($id);
 
             if (!$nominee) {
                 return ResponseHelper::error($response, 'Nominee not found', 404);
@@ -330,8 +293,8 @@ class AwardNomineeController
             // Authorization
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                $event = $nominee->category ? $nominee->category->event : null;
-                if (!$organizer || !$event || $organizer->id !== $event->organizer_id) {
+                $award = $nominee->category ? $nominee->category->award : null;
+                if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized', 403);
                 }
             }
@@ -342,9 +305,9 @@ class AwardNomineeController
                 return ResponseHelper::error($response, 'Cannot delete nominee with paid votes', 400);
             }
 
-            // Delete image if exists
-            if ($nominee->image && file_exists(dirname(__DIR__, 2) . '/public' . $nominee->image)) {
-                unlink(dirname(__DIR__, 2) . '/public' . $nominee->image);
+            // Delete image if exists using UploadService
+            if ($nominee->image) {
+                $this->uploadService->deleteFile($nominee->image);
             }
 
             $nominee->delete();

@@ -120,7 +120,7 @@ return function ($container) {
         return new TicketTypeController();
     });
 
-    $container->set(OrderController::class, function ($container) {
+   $container->set(OrderController::class, function ($container) {
         return new OrderController(
             $container->get(\App\Services\NotificationService::class)
         );
@@ -148,8 +148,10 @@ return function ($container) {
         return new AwardCategoryController();
     });
 
-    $container->set(AwardNomineeController::class, function () {
-        return new AwardNomineeController();
+    $container->set(AwardNomineeController::class, function ($container) {
+        return new AwardNomineeController(
+            $container->get(\App\Services\UploadService::class)
+        );
     });
 
     $container->set(AwardVoteController::class, function () {

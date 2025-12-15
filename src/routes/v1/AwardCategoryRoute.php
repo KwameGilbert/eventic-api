@@ -28,7 +28,10 @@ return function (App $app): void {
 
     // Protected routes (auth required - organizer/admin only)
     $app->group('/v1', function ($group) use ($categoryController) {
-        // Create new category
+        // Create new category for Awards (new endpoint)
+        $group->post('/awards/{awardId}/award-categories', [$categoryController, 'create']);
+        
+        // Create new category for Events (backward compatibility)
         $group->post('/award-categories/events/{eventId}', [$categoryController, 'create']);
 
         // Update category
