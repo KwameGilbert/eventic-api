@@ -104,42 +104,49 @@ class AwardController
     {
         try {
             $queryParams = $request->getQueryParams();
-            $limit = (int) ($queryParams['limit'] ?? 5);
+            
+            // Pagination parameters
+            $page = (int) ($queryParams['page'] ?? 1);
+            $perPage = (int) ($queryParams['per_page'] ?? 20);
+            $offset = ($page - 1) * $perPage;
 
-            // First try to get featured awards
-            $awards = Award::with(['categories.nominees', 'organizer.user'])
+            // Build query for featured awards
+            $query = Award::with(['categories.nominees', 'organizer.user', 'images'])
                 ->where('status', Award::STATUS_PUBLISHED)
-                ->where('is_featured', true)
-                ->where('ceremony_date', '>', \Illuminate\Support\Carbon::now())
-                ->orderBy('ceremony_date', 'asc')
-                ->limit($limit)
-                ->get();
+                ->where('is_featured', true);
 
-            // If no featured awards, fallback to upcoming awards
-            if ($awards->isEmpty()) {
-                $awards = Award::with(['categories.nominees', 'organizer.user'])
-                    ->where('status', Award::STATUS_PUBLISHED)
-                    ->where('ceremony_date', '>', \Illuminate\Support\Carbon::now())
-                    ->orderBy('ceremony_date', 'asc')
-                    ->limit($limit)
-                    ->get();
+            // Filter upcoming only (optional)
+            if (isset($queryParams['upcoming']) && $queryParams['upcoming'] === 'true') {
+                $query->where('ceremony_date', '>', \Illuminate\Support\Carbon::now());
             }
 
-            // Format for frontend
+            // Filter voting open (optional)
+            if (isset($queryParams['voting_open']) && $queryParams['voting_open'] === 'true') {
+                $query->votingOpen();
+            }
+
+            // Get total count before pagination
+            $totalCount = $query->count();
+
+            // Get paginated results
+            $awards = $query->orderBy('ceremony_date', 'desc')
+                ->offset($offset)
+                ->limit($perPage)
+                ->get();
+
+            // Format awards for frontend compatibility (same as index)
             $formattedAwards = $awards->map(function ($award) {
-                return [
-                    'id' => $award->id,
-                    'title' => $award->title,
-                    'slug' => $award->slug,
-                    'venue' => $award->venue_name . ($award->address ? ', ' . $award->address : ''),
-                    'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->format('D d M Y, g:i A') : null,
-                    'is_voting_open' => $award->isVotingOpen(),
-                    'image' => $award->banner_image,
-                    'categories_count' => $award->categories->count(),
-                ];
+                return $award->getFullDetails();
             });
 
-            return ResponseHelper::success($response, 'Featured awards fetched successfully', $formattedAwards->toArray());
+            return ResponseHelper::success($response, 'Featured awards fetched successfully', [
+                'awards' => $formattedAwards->toArray(),
+                'count' => $awards->count(),
+                'total' => $totalCount,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total_pages' => ceil($totalCount / $perPage),
+            ]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch featured awards', 500, $e->getMessage());
         }

@@ -83,7 +83,7 @@ class AwardCategory extends Model
      */
     public function getTotalVotes(): int
     {
-        return $this->votes()
+        return (int) $this->votes()
                     ->where('status', 'paid')
                     ->sum('number_of_votes');
     }
@@ -91,10 +91,18 @@ class AwardCategory extends Model
     /**
      * Get total revenue generated from this category.
      */
-    public function getCategoryTotalRevenue(): float
+    public function getTotalRevenue(): float
     {
         $totalVotes = $this->getTotalVotes();
         return $totalVotes * $this->cost_per_vote;
+    }
+
+    /**
+     * Get category-level total revenue (alias for getTotalRevenue).
+     */
+    public function getCategoryTotalRevenue(): float
+    {
+        return $this->getTotalRevenue();
     }
 
     /**
@@ -118,6 +126,14 @@ class AwardCategory extends Model
         $beforeEnd = !$this->voting_end || $now->lessThanOrEqualTo($this->voting_end);
 
         return $afterStart && $beforeEnd;
+    }
+
+    /**
+     * Alias for isVotingActive() for consistency with Award model.
+     */
+    public function isVotingOpen(): bool
+    {
+        return $this->isVotingActive();
     }
 
     /**

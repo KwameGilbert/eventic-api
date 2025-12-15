@@ -75,7 +75,7 @@ class AwardNominee extends Model
      */
     public function getTotalVotes(): int
     {
-        return $this->votes()
+        return (int) $this->votes()
                     ->where('status', 'paid')
                     ->sum('number_of_votes');
     }
