@@ -62,7 +62,8 @@ return function ($app, $container, $config) {
             ->withHeader('Access-Control-Allow-Methods', $corsConfig['allowed_methods'])
             ->withHeader('Access-Control-Allow-Credentials', $allowCredentials)
             ->withHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-            ->withHeader('Access-Control-Max-Age', (string)$corsConfig['max_age']);
+            ->withHeader('Access-Control-Max-Age', (string)$corsConfig['max_age'])
+            ->withHeader('Content-Type', 'application/json');
     });
     
     // Handle preflight OPTIONS requests
@@ -78,7 +79,8 @@ return function ($app, $container, $config) {
             ->withHeader('Access-Control-Allow-Methods', $corsConfig['allowed_methods'])
             ->withHeader('Access-Control-Allow-Credentials', $allowCredentials)
             ->withHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-            ->withHeader('Access-Control-Max-Age', (string)$corsConfig['max_age']);
+            ->withHeader('Access-Control-Max-Age', (string)$corsConfig['max_age'])
+            ->withHeader('Content-Type', 'application/json');
     });
     
     // ==================== JSON BODY PARSING ====================
