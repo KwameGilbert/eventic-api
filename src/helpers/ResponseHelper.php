@@ -18,6 +18,10 @@ class ResponseHelper
      */
     public static function jsonResponse(Response $response, $data, int $status = 200): Response
     {
+        // Clean the buffer to remove any accidental whitespace or errors
+        if (ob_get_length()) {
+            ob_clean();
+        }
         $json = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $response->getBody()->write($json);
         return $response
