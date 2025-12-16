@@ -57,7 +57,7 @@ return function ($app, $container, $config) {
             : $corsConfig['allow_credentials'];
             
         return $response
-            ->withHeader('Access-Control-Allow-Origin', $allowedOrigins)
+            ->withHeader('Access-Control-Allow-Origin', '*')
             ->withHeader('Access-Control-Allow-Headers', $corsConfig['allowed_headers'])
             ->withHeader('Access-Control-Allow-Methods', $corsConfig['allowed_methods'])
             ->withHeader('Access-Control-Allow-Credentials', $allowCredentials)
@@ -74,7 +74,7 @@ return function ($app, $container, $config) {
             : $corsConfig['allow_credentials'];
             
         return $response
-            ->withHeader('Access-Control-Allow-Origin', $allowedOrigins)
+            ->withHeader('Access-Control-Allow-Origin', '*')
             ->withHeader('Access-Control-Allow-Headers', $corsConfig['allowed_headers'])
             ->withHeader('Access-Control-Allow-Methods', $corsConfig['allowed_methods'])
             ->withHeader('Access-Control-Allow-Credentials', $allowCredentials)
