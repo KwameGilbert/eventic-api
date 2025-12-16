@@ -141,7 +141,7 @@ class UploadService
         $relativePath .= '/' . $filename;
 
         // Get base URL from environment
-        $baseUrl = rtrim(getenv('APP_URL') ?: 'http://localhost:8000', '/');
+        $baseUrl = rtrim($_ENV['APP_URL'] ?: 'http://localhost:8000', '/');
         
         // Return full URL
         return $baseUrl . $relativePath;

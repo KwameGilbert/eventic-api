@@ -70,6 +70,7 @@ class Award extends Model
 
     // Award Status Constants
     const STATUS_DRAFT = 'draft';
+    const STATUS_PENDING = 'pending';
     const STATUS_PUBLISHED = 'published';
     const STATUS_CLOSED = 'closed';
     const STATUS_COMPLETED = 'completed';

@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Helper\ResponseHelper;
 use App\Models\AwardCategory;
 use App\Models\Event;
+use App\Models\Award;
 use App\Models\Organizer;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -120,7 +121,7 @@ public function create(Request $request, Response $response, array $args): Respo
         $user = $request->getAttribute('user');
 
         // Verify award exists
-        $award = \App\Models\Award::find($awardId);
+        $award = Award::find($awardId);
         if (!$award) {
             return ResponseHelper::error($response, 'Award not found', 404);
         }
@@ -190,8 +191,8 @@ public function create(Request $request, Response $response, array $args): Respo
             // Authorization: Check if user owns the event
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                $event = $category->event;
-                if (!$organizer || !$event || $organizer->id !== $event->organizer_id) {
+                $award = Award::find($category->award_id);
+                if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this category', 403);
                 }
             }
@@ -222,7 +223,7 @@ public function create(Request $request, Response $response, array $args): Respo
             $id = $args['id'];
             $user = $request->getAttribute('user');
 
-            $category = AwardCategory::with('event')->find($id);
+            $category = AwardCategory::with('award')->find($id);
 
             if (!$category) {
                 return ResponseHelper::error($response, 'Award category not found', 404);
@@ -231,7 +232,8 @@ public function create(Request $request, Response $response, array $args): Respo
             // Authorization: Check if user owns the event
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || !$category->event || $organizer->id !== $category->event->organizer_id) {
+                $award = Award::find($category->award_id);
+                if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this category', 403);
                 }
             }

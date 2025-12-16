@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\User;
 use App\Models\Award;
+use App\Models\AwardVote;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -89,11 +90,53 @@ class OrganizerController
                 ? round((($thisMonthOrders - $lastMonthOrders) / $lastMonthOrders) * 100)
                 : ($thisMonthOrders > 0 ? 100 : 0);
 
+            // === AWARD STATS ===
+            $awards = Award::where('organizer_id', $organizer->id)->get();
+            $totalAwards = $awards->count();
+            
+            // Get published awards
+            $publishedAwards = $awards->where('status', 'published')->count();
+            
+            // Get awards with active voting
+            $activeVotingAwards = $awards->filter(function($award) {
+                return $award->isVotingOpen();
+            })->count();
+            
+            // Get upcoming ceremonies (future ceremony dates)
+            $upcomingCeremonies = $awards->where('status', 'published')
+                ->filter(function($award) {
+                    return $award->ceremony_date && Carbon::parse($award->ceremony_date)->isFuture();
+                })->count();
+            
+            // Calculate total votes and revenue across all awards
+            $totalVotes = 0;
+            $totalAwardRevenue = 0;
+            
+            foreach ($awards as $award) {
+                $totalVotes += $award->getTotalVotes();
+                $totalAwardRevenue += $award->getTotalRevenue();
+            }
+            
+            // Calculate vote changes (this month vs last month)
+            $lastMonthVotes = AwardVote::whereIn('award_id', $awards->pluck('id'))
+                ->where('status', 'paid')
+                ->whereBetween('created_at', [$lastMonthStart, $lastMonthEnd])
+                ->sum('number_of_votes');
+            
+            $thisMonthVotes = AwardVote::whereIn('award_id', $awards->pluck('id'))
+                ->where('status', 'paid')
+                ->where('created_at', '>=', $thisMonthStart)
+                ->sum('number_of_votes');
+            
+            $voteChange = $lastMonthVotes > 0
+                ? round((($thisMonthVotes - $lastMonthVotes) / $lastMonthVotes) * 100)
+                : ($thisMonthVotes > 0 ? 100 : 0);
+
             $stats = [
                 [
                     'label' => 'Total Events',
                     'value' => (string) $totalEvents,
-                    'change' => '0%', // Events don't have a natural time-based comparison
+                    'change' => '0%',
                     'trend' => 'up',
                     'ringProgress' => min(100, $totalEvents * 10)
                 ],
@@ -117,6 +160,35 @@ class OrganizerController
                     'change' => '0%',
                     'trend' => 'up',
                     'ringProgress' => min(100, (int) ($totalRevenue / 1000))
+                ],
+                // AWARD STATS
+                [
+                    'label' => 'Total Awards',
+                    'value' => (string) $totalAwards,
+                    'change' => '0%',
+                    'trend' => 'up',
+                    'ringProgress' => min(100, $totalAwards * 10)
+                ],
+                [
+                    'label' => 'Active Voting',
+                    'value' => (string) $activeVotingAwards,
+                    'change' => '0%',
+                    'trend' => 'up',
+                    'ringProgress' => min(100, $activeVotingAwards * 20)
+                ],
+                [
+                    'label' => 'Upcoming Ceremonies',
+                    'value' => (string) $upcomingCeremonies,
+                    'change' => '0%',
+                    'trend' => 'up',
+                    'ringProgress' => min(100, $upcomingCeremonies * 15)
+                ],
+                [
+                    'label' => 'Total Votes',
+                    'value' => number_format($totalVotes),
+                    'change' => abs($voteChange) . '%',
+                    'trend' => $voteChange >= 0 ? 'up' : 'down',
+                    'ringProgress' => min(100, (int)($totalVotes / 100))
                 ],
             ];
 
@@ -330,6 +402,141 @@ class OrganizerController
                 ];
             }
 
+            // === AWARD ANALYTICS ===
+            
+            // Weekly votes data (last 7 days)
+            $weeklyVotesData = [];
+            for ($i = 6; $i >= 0; $i--) {
+                $date = Carbon::now()->subDays($i);
+                $dayName = $date->format('D');
+
+                $dayVotes = \App\Models\AwardVote::whereIn('award_id', $awards->pluck('id'))
+                    ->where('status', 'paid')
+                    ->whereDate('created_at', $date->toDateString())
+                    ->sum('number_of_votes');
+
+                $weeklyVotesData[] = [
+                    'day' => $dayName,
+                    'votes' => (int) $dayVotes
+                ];
+            }
+
+            // Monthly award revenue data (last 8 months)
+            $monthlyAwardRevenueData = [];
+            for ($i = 7; $i >= 0; $i--) {
+                $date = Carbon::now()->subMonths($i);
+                $monthName = $date->format('M');
+
+                $monthRevenue = 0;
+                $awardIds = $awards->pluck('id');
+                
+                if ($awardIds->isNotEmpty()) {
+                    $monthVotes = \App\Models\AwardVote::whereIn('award_id', $awardIds)
+                        ->where('status', 'paid')
+                        ->whereYear('created_at', $date->year)
+                        ->whereMonth('created_at', $date->month)
+                        ->with('category')
+                        ->get();
+
+                    foreach ($monthVotes as $vote) {
+                        if ($vote->category) {
+                            $monthRevenue += $vote->number_of_votes * $vote->category->cost_per_vote;
+                        }
+                    }
+                }
+
+                $monthlyAwardRevenueData[] = [
+                    'month' => $monthName,
+                    'revenue' => round($monthRevenue / 1000, 1) // In thousands
+                ];
+            }
+
+            // Top performing awards (last 30 days)
+            $topAwards = [];
+            if ($awards->isNotEmpty()) {
+                $topAwards = $awards->map(function($award) {
+                    $votes = \App\Models\AwardVote::where('award_id', $award->id)
+                        ->where('status', 'paid')
+                        ->where('created_at', '>=', Carbon::now()->subDays(30))
+                        ->sum('number_of_votes');
+                    
+                    return [
+                        'id' => $award->id,
+                        'title' => $award->title,
+                        'votes' => $votes,
+                        'revenue' => $award->getTotalRevenue(),
+                        'status' => $award->status,
+                    ];
+                })
+                ->sortByDesc('votes')
+                ->take(5)
+                ->values()
+                ->toArray();
+            }
+
+            // Recent award votes
+            $recentAwardVotes = [];
+            if ($awards->isNotEmpty()) {
+                $recentAwardVotes = \App\Models\AwardVote::whereIn('award_id', $awards->pluck('id'))
+                    ->where('status', 'paid')
+                    ->with(['nominee', 'category', 'award'])
+                    ->orderBy('created_at', 'desc')
+                    ->limit(10)
+                    ->get()
+                    ->map(function($vote) {
+                        return [
+                            'id' => $vote->id,
+                            'voter_name' => $vote->voter_name ?? 'Anonymous',
+                            'voter_email' => $vote->voter_email,
+                            'nominee' => $vote->nominee ? $vote->nominee->name : 'Unknown',
+                            'category' => $vote->category ? $vote->category->name : 'Unknown',
+                            'award' => $vote->award ? $vote->award->title : 'Unknown',
+                            'votes' => $vote->number_of_votes,
+                            'amount' => $vote->getTotalAmount(),
+                            'time' => $this->getRelativeTime($vote->created_at),
+                            'created_at' => Carbon::parse($vote->created_at)->format('M d, Y g:i A'),
+                        ];
+                    })
+                    ->toArray();
+            }
+
+            // Award category breakdown (for donut chart)
+            $awardCategoryBreakdown = [];
+            if ($awards->isNotEmpty()) {
+                $awardIds = $awards->pluck('id');
+                $categories = \App\Models\AwardCategory::whereIn('award_id', $awardIds)
+                    ->with('votes')
+                    ->get();
+
+                if ($categories->isNotEmpty()) {
+                    $awardCategoryBreakdown = $categories
+                        ->groupBy('name')
+                        ->map(function($cats, $name) {
+                            $totalVotes = 0;
+                            foreach($cats as $category) {
+                                $totalVotes += $category->votes()->where('status', 'paid')->sum('number_of_votes');
+                            }
+                            return [
+                                'name' => $name,
+                                'value' => $totalVotes
+                            ];
+                        })
+                        ->sortByDesc('value')
+                        ->take(8)
+                        ->values()
+                        ->toArray();
+                }
+            }
+
+            // If no data, provide structure
+            if (empty($awardCategoryBreakdown)) {
+                $awardCategoryBreakdown = [
+                    ['name' => 'Music', 'value' => 0],
+                    ['name' => 'Film', 'value' => 0],
+                    ['name' => 'Arts', 'value' => 0],
+                ];
+            }
+
             // === ASSEMBLE DASHBOARD DATA ===
             $dashboardData = [
                 'user' => [
@@ -351,6 +558,28 @@ class OrganizerController
                 'upcomingEvent' => $upcomingEventData,
                 'upcomingAward' => $upcomingAwardData,
                 'calendarEvents' => $calendarEvents,
+                // Award analytics data
+                'awardStats' => [
+                    'totalAwards' => $totalAwards,
+                    'publishedAwards' => $publishedAwards,
+                    'activeVoting' => $activeVotingAwards,
+                    'upcomingCeremonies' => $upcomingCeremonies,
+                    'totalVotes' => $totalVotes,
+                    'totalRevenue' => $totalAwardRevenue,
+                ],
+                'weeklyVotesData' => $weeklyVotesData,
+                'monthlyAwardRevenueData' => $monthlyAwardRevenueData,
+                'topAwards' => $topAwards,
+                'recentAwardVotes' => $recentAwardVotes,
+                'awardCategoryBreakdown' => $awardCategoryBreakdown,
+                'awardStatusCounts' => [
+                    'all' => $totalAwards,
+                    'published' => $publishedAwards,
+                    'draft' => $awards->where('status', 'draft')->count(),
+                    'pending' => $awards->where('status', 'pending')->count(),
+                    'closed' => $awards->where('status', 'closed')->count(),
+                    'completed' => $awards->where('status', 'completed')->count(),
+                ],
             ];
 
             return ResponseHelper::success($response, 'Dashboard data fetched successfully', $dashboardData);

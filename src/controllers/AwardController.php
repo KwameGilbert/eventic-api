@@ -255,9 +255,26 @@ class AwardController
             }
 
             // Validate status value
-            $validStatuses = [Award::STATUS_DRAFT, Award::STATUS_PUBLISHED, Award::STATUS_CLOSED, Award::STATUS_COMPLETED];
+            $validStatuses = [Award::STATUS_DRAFT, Award::STATUS_PENDING, Award::STATUS_PUBLISHED, Award::STATUS_CLOSED, Award::STATUS_COMPLETED];
             if (isset($data['status']) && !in_array($data['status'], $validStatuses)) {
-                return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, published, closed, completed", 400);
+                return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, pending, published, closed, completed", 400);
+            }
+
+            // Permission check: Organizers can only set status to draft or pending
+            if ($user->role !== 'admin' && isset($data['status'])) {
+                $allowedOrganizerStatuses = ['draft', 'pending'];
+                if (!in_array($data['status'], $allowedOrganizerStatuses)) {
+                    return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish awards.", 403);
+                }
+            }
+
+            // Permission check: Only admins can mark awards as featured
+            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+                return ResponseHelper::error($response, "Only admins can mark awards as featured", 403);
+            }
+            // Force is_featured to false for non-admins
+            if ($user->role !== 'admin') {
+                $data['is_featured'] = false;
             }
 
             // Set default location values if not provided
@@ -356,10 +373,28 @@ class AwardController
 
             // Validate status value if provided
             if (isset($data['status'])) {
-                $validStatuses = [Award::STATUS_DRAFT, Award::STATUS_PUBLISHED, Award::STATUS_CLOSED, Award::STATUS_COMPLETED];
+                $validStatuses = [Award::STATUS_DRAFT, Award::STATUS_PENDING, Award::STATUS_PUBLISHED, Award::STATUS_CLOSED, Award::STATUS_COMPLETED];
                 if (!in_array($data['status'], $validStatuses)) {
-                    return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, published, closed, completed", 400);
+                    return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, pending, published, closed, completed", 400);
                 }
+
+                // Permission check: Organizers can only set status to draft or pending
+                // They can also move from pending back to draft
+                if ($user->role !== 'admin') {
+                    $allowedOrganizerStatuses = [Award::STATUS_DRAFT, Award::STATUS_PENDING];
+                    if (!in_array($data['status'], $allowedOrganizerStatuses)) {
+                        return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish awards.", 403);
+                    }
+                }
+            }
+
+            // Permission check: Only admins can mark awards as featured
+            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+                return ResponseHelper::error($response, "Only admins can mark awards as featured", 403);
+            }
+            // Prevent non-admins from changing is_featured value
+            if ($user->role !== 'admin' && isset($data['is_featured'])) {
+                unset($data['is_featured']); // Remove from update data
             }
 
             // Handle banner image upload using UploadService
@@ -560,4 +595,69 @@ class AwardController
             return ResponseHelper::error($response, 'Failed to toggle results visibility', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Submit award for approval (draft -> pending)
+     * PUT /v1/awards/{id}/submit-for-approval
+     */
+    public function submitForApproval(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $awardId = (int) $args['id'];
+            $user = $request->getAttribute('user');
+
+            // Find the award
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Verify organizer ownership
+            if ($user->role !== 'organizer' && $user->role !== 'admin') {
+                return ResponseHelper::error($response, 'Only organizers can submit awards for approval', 403);
+            }
+
+            $organizer = Organizer::where('user_id', $user->id)->first();
+            if ($user->role === 'organizer' && (!$organizer || $award->organizer_id !== $organizer->id)) {
+                return ResponseHelper::error($response, 'You do not have permission to submit this award', 403);
+            }
+
+            // Check if award is in draft status
+            if ($award->status !== Award::STATUS_DRAFT) {
+                return ResponseHelper::error(
+                    $response,
+                    'Only draft awards can be submitted for approval. Current status: ' . $award->status,
+                    400
+                );
+            }
+
+            // Validate that award has required data for submission
+            // At minimum, should have title, description, dates, and at least one category
+            if (empty($award->title) || empty($award->description)) {
+                return ResponseHelper::error($response, 'Award must have a title and description before submission', 400);
+            }
+
+            if (empty($award->ceremony_date) || empty($award->voting_start) || empty($award->voting_end)) {
+                return ResponseHelper::error($response, 'Award must have ceremony date and voting dates before submission', 400);
+            }
+
+            $categoriesCount = $award->categories()->count();
+            if ($categoriesCount === 0) {
+                return ResponseHelper::error($response, 'Award must have at least one category before submission', 400);
+            }
+
+            // Update status to pending
+            $award->status = Award::STATUS_PENDING;
+            $award->save();
+
+            return ResponseHelper::success($response, 'Award submitted for admin approval successfully', [
+                'award_id' => $award->id,
+                'status' => $award->status,
+                'message' => 'Your award has been submitted and is now pending admin approval'
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to submit award for approval', 500, $e->getMessage());
+        }
+    }
 }
+

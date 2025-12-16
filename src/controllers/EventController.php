@@ -265,15 +265,21 @@ class EventController
                 return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, pending, published, cancelled, completed", 400);
             }
 
-            // Set default event_format if not provided
-            if (!isset($data['event_format'])) {
-                $data['event_format'] = 'ticketing';
+            // Permission check: Organizers can only set status to draft or pending
+            if ($user->role !== 'admin' && isset($data['status'])) {
+                $allowedOrganizerStatuses = [Event::STATUS_DRAFT, Event::STATUS_PENDING];
+                if (!in_array($data['status'], $allowedOrganizerStatuses)) {
+                    return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish events.", 403);
+                }
             }
 
-            // Validate event_format value
-            $validFormats = ['ticketing', 'awards'];
-            if (isset($data['event_format']) && !in_array($data['event_format'], $validFormats)) {
-                return ResponseHelper::error($response, "Invalid event_format value. Allowed values: ticketing, awards", 400);
+            // Permission check: Only admins can mark events as featured
+            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+                return ResponseHelper::error($response, "Only admins can mark events as featured", 403);
+            }
+            // Force is_featured to false for non-admins
+            if ($user->role !== 'admin') {
+                $data['is_featured'] = false;
             }
 
             // Set default location values if not provided
@@ -481,6 +487,24 @@ class EventController
                 if (!in_array($data['status'], $validStatuses)) {
                     return ResponseHelper::error($response, "Invalid status value. Allowed values: draft, pending, published, cancelled, completed", 400);
                 }
+
+                // Permission check: Organizers can only set status to draft or pending
+                // They can also move from pending back to draft
+                if ($user->role !== 'admin') {
+                    $allowedOrganizerStatuses = [Event::STATUS_DRAFT, Event::STATUS_PENDING];
+                    if (!in_array($data['status'], $allowedOrganizerStatuses)) {
+                        return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish events.", 403);
+                    }
+                }
+            }
+
+            // Permission check: Only admins can mark events as featured
+            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+                return ResponseHelper::error($response, "Only admins can mark events as featured", 403);
+            }
+            // Prevent non-admins from changing is_featured value
+            if ($user->role !== 'admin' && isset($data['is_featured'])) {
+                unset($data['is_featured']); // Remove from update data
             }
 
             // Validate event_format value if provided
