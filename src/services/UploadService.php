@@ -60,6 +60,12 @@ class UploadService
             'max_size' => 2 * 1024 * 1024, // 2MB
             'directory' => 'nominees',
         ],
+        'ticket' => [
+            'mimes' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg'],
+            'extensions' => ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            'max_size' => 2 * 1024 * 1024, // 2MB
+            'directory' => 'tickets',
+        ],
     ];
 
     public function __construct()
@@ -193,7 +199,7 @@ class UploadService
             return unlink($fullPath);
         }
 
-        return false;
+        return true;
     }
 
     /**

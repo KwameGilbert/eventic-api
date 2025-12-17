@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\OrderItem;
 use App\Models\Organizer;
+use App\Services\UploadService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -22,6 +23,13 @@ use Exception;
  */
 class EventController
 {
+    private UploadService $uploadService;
+
+    public function __construct()
+    {
+        $this->uploadService = new UploadService();
+    }
+
     /**
      * Get all events (with optional filtering)
      * GET /v1/events
@@ -303,81 +311,34 @@ class EventController
                 }
             }
 
-            // Handle banner image upload
+            // Handle banner image upload using UploadService
             if (isset($uploadedFiles['banner_image'])) {
                 $bannerImage = $uploadedFiles['banner_image'];
-
                 if ($bannerImage->getError() === UPLOAD_ERR_OK) {
-                    // Validate file type
-                    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                    $mimeType = $bannerImage->getClientMediaType();
-
-                    if (!in_array($mimeType, $allowedTypes)) {
-                        return ResponseHelper::error($response, 'Invalid image type. Allowed: JPEG, PNG, GIF, WebP', 400);
+                    try {
+                        $data['banner_image'] = $this->uploadService->uploadFile($bannerImage, 'banner', 'events');
+                    } catch (Exception $e) {
+                        return ResponseHelper::error($response, $e->getMessage(), 400);
                     }
-
-                    // Validate file size (max 5MB)
-                    if ($bannerImage->getSize() > 5 * 1024 * 1024) {
-                        return ResponseHelper::error($response, 'Image size must be less than 5MB', 400);
-                    }
-
-                    // Create upload directory if it doesn't exist
-                    $uploadDir = dirname(__DIR__, 2) . '/public/uploads/events';
-                    if (!is_dir($uploadDir)) {
-                        mkdir($uploadDir, 0755, true);
-                    }
-
-                    // Generate unique filename
-                    $extension = pathinfo($bannerImage->getClientFilename(), PATHINFO_EXTENSION);
-                    $filename = 'event_' . uniqid() . '_' . time() . '.' . $extension;
-                    $filepath = $uploadDir . '/' . $filename;
-
-                    // Move uploaded file
-                    $bannerImage->moveTo($filepath);
-
-                    // Store relative path in database
-                    $data['banner_image'] = '/uploads/events/' . $filename;
                 }
             }
 
             $event = Event::create($data);
 
-            // Handle event photos upload (multiple)
+            // Handle event photos upload (multiple) using UploadService
             if (isset($uploadedFiles['event_photos']) && is_array($uploadedFiles['event_photos'])) {
-                $uploadDir = dirname(__DIR__, 2) . '/public/uploads/events';
-                if (!is_dir($uploadDir)) {
-                    mkdir($uploadDir, 0755, true);
-                }
-
-                $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-
                 foreach ($uploadedFiles['event_photos'] as $photo) {
                     if ($photo->getError() === UPLOAD_ERR_OK) {
-                        $mimeType = $photo->getClientMediaType();
-
-                        // Validate file type
-                        if (!in_array($mimeType, $allowedTypes)) {
-                            continue; // Skip invalid files
+                        try {
+                            $imagePath = $this->uploadService->uploadFile($photo, 'image', 'events');
+                            EventImage::create([
+                                'event_id' => $event->id,
+                                'image_path' => $imagePath,
+                            ]);
+                        } catch (Exception $e) {
+                            // Log error but continue with other files
+                            error_log("Failed to upload event photo: " . $e->getMessage());
                         }
-
-                        // Validate file size (max 5MB)
-                        if ($photo->getSize() > 5 * 1024 * 1024) {
-                            continue; // Skip files that are too large
-                        }
-
-                        // Generate unique filename
-                        $extension = pathinfo($photo->getClientFilename(), PATHINFO_EXTENSION);
-                        $filename = 'event_photo_' . uniqid() . '_' . time() . '.' . $extension;
-                        $filepath = $uploadDir . '/' . $filename;
-
-                        // Move uploaded file
-                        $photo->moveTo($filepath);
-
-                        // Create EventImage record
-                        EventImage::create([
-                            'event_id' => $event->id,
-                            'image_path' => '/uploads/events/' . $filename,
-                        ]);
                     }
                 }
             }
@@ -390,36 +351,15 @@ class EventController
                         if (!empty($ticketData['name']) && isset($ticketData['quantity'])) {
                             $ticketImagePath = null;
 
-                            // Handle ticket image upload for this specific ticket
-                            // Check if image is uploaded as ticket_image_{index}
+                            // Handle ticket image upload for this specific ticket using UploadService
                             if (isset($uploadedFiles["ticket_image_{$index}"])) {
                                 $ticketImage = $uploadedFiles["ticket_image_{$index}"];
-
                                 if ($ticketImage->getError() === UPLOAD_ERR_OK) {
-                                    // Validate file type
-                                    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                                    $mimeType = $ticketImage->getClientMediaType();
-
-                                    if (in_array($mimeType, $allowedTypes)) {
-                                        // Validate file size (max 2MB for ticket images)
-                                        if ($ticketImage->getSize() <= 2 * 1024 * 1024) {
-                                            // Create upload directory for tickets if it doesn't exist
-                                            $ticketUploadDir = dirname(__DIR__, 2) . '/public/uploads/tickets';
-                                            if (!is_dir($ticketUploadDir)) {
-                                                mkdir($ticketUploadDir, 0755, true);
-                                            }
-
-                                            // Generate unique filename
-                                            $extension = pathinfo($ticketImage->getClientFilename(), PATHINFO_EXTENSION);
-                                            $filename = 'ticket_' . uniqid() . '_' . time() . '.' . $extension;
-                                            $filepath = $ticketUploadDir . '/' . $filename;
-
-                                            // Move uploaded file
-                                            $ticketImage->moveTo($filepath);
-
-                                            // Store relative path
-                                            $ticketImagePath = rtrim($_ENV['APP_URL'] ?? 'http://app.eventic.com', '/') . '/uploads/tickets/' . $filename;
-                                        }
+                                    try {
+                                        $ticketImagePath = $this->uploadService->uploadFile($ticketImage, 'ticket');
+                                    } catch (Exception $e) {
+                                        // Log error but continue
+                                        error_log("Failed to upload ticket image: " . $e->getMessage());
                                     }
                                 }
                             }
@@ -525,86 +465,39 @@ class EventController
                 }
             }
 
-            // Handle banner image upload
+            // Handle banner image upload using UploadService
             if (isset($uploadedFiles['banner_image'])) {
                 $bannerImage = $uploadedFiles['banner_image'];
-
                 if ($bannerImage->getError() === UPLOAD_ERR_OK) {
-                    // Validate file type
-                    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                    $mimeType = $bannerImage->getClientMediaType();
-
-                    if (!in_array($mimeType, $allowedTypes)) {
-                        return ResponseHelper::error($response, 'Invalid image type. Allowed: JPEG, PNG, GIF, WebP', 400);
+                    try {
+                        $data['banner_image'] = $this->uploadService->replaceFile(
+                            $bannerImage,
+                            $event->banner_image,
+                            'banner',
+                            'events'
+                        );
+                    } catch (Exception $e) {
+                        return ResponseHelper::error($response, $e->getMessage(), 400);
                     }
-
-                    // Validate file size (max 5MB)
-                    if ($bannerImage->getSize() > 5 * 1024 * 1024) {
-                        return ResponseHelper::error($response, 'Image size must be less than 5MB', 400);
-                    }
-
-                    // Create upload directory if it doesn't exist
-                    $uploadDir = dirname(__DIR__, 2) . '/public/uploads/events';
-                    if (!is_dir($uploadDir)) {
-                        mkdir($uploadDir, 0755, true);
-                    }
-
-                    // Delete old image if exists
-                    if ($event->banner_image && file_exists(dirname(__DIR__, 2) . '/public' . $event->banner_image)) {
-                        unlink(dirname(__DIR__, 2) . '/public' . $event->banner_image);
-                    }
-
-                    // Generate unique filename
-                    $extension = pathinfo($bannerImage->getClientFilename(), PATHINFO_EXTENSION);
-                    $filename = 'event_' . uniqid() . '_' . time() . '.' . $extension;
-                    $filepath = $uploadDir . '/' . $filename;
-
-                    // Move uploaded file
-                    $bannerImage->moveTo($filepath);
-
-                    // Store relative path in database
-                    $data['banner_image'] = '/uploads/events/' . $filename;
                 }
             }
 
             $event->update($data);
 
-            // Handle event photos upload (multiple) - these are added to existing photos
+            // Handle event photos upload (multiple) using UploadService - these are added to existing photos
             if (isset($uploadedFiles['event_photos']) && is_array($uploadedFiles['event_photos'])) {
-                $uploadDir = dirname(__DIR__, 2) . '/public/uploads/events';
-                if (!is_dir($uploadDir)) {
-                    mkdir($uploadDir, 0755, true);
-                }
-
-                $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-
                 foreach ($uploadedFiles['event_photos'] as $photo) {
                     if ($photo->getError() === UPLOAD_ERR_OK) {
-                        $mimeType = $photo->getClientMediaType();
-
-                        // Validate file type
-                        if (!in_array($mimeType, $allowedTypes)) {
-                            continue; // Skip invalid files
+                        try {
+                            $imagePath = $this->uploadService->uploadFile($photo, 'image', 'events');
+                            EventImage::create([
+                                'event_id' => $event->id,
+                                'image_path' => $imagePath,
+                            ]);
+                        } catch (Exception $e) {
+                            // Log error but continue with other files
+                            error_log("Failed to upload event photo: " . $e->getMessage());
                         }
-
-                        // Validate file size (max 5MB)
-                        if ($photo->getSize() > 5 * 1024 * 1024) {
-                            continue; // Skip files that are too large
-                        }
-
-                        // Generate unique filename
-                        $extension = pathinfo($photo->getClientFilename(), PATHINFO_EXTENSION);
-                        $filename = 'event_photo_' . uniqid() . '_' . time() . '.' . $extension;
-                        $filepath = $uploadDir . '/' . $filename;
-
-                        // Move uploaded file
-                        $photo->moveTo($filepath);
-
-                        // Create EventImage record
-                        EventImage::create([
-                            'event_id' => $event->id,
-                            'image_path' => '/uploads/events/' . $filename,
-                        ]);
                     }
                 }
             }
@@ -639,35 +532,21 @@ class EventController
                                     if ($newRemaining < 0)
                                         $newRemaining = 0;
 
-                                    // Handle ticket image upload for update
+                                    // Handle ticket image upload for update using UploadService
                                     $ticketImagePath = $ticket->ticket_image; // Keep existing image by default
                                     
                                     if (isset($uploadedFiles["ticket_image_{$index}"])) {
                                         $ticketImage = $uploadedFiles["ticket_image_{$index}"];
-
                                         if ($ticketImage->getError() === UPLOAD_ERR_OK) {
-                                            $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                                            $mimeType = $ticketImage->getClientMediaType();
-
-                                            if (in_array($mimeType, $allowedTypes)) {
-                                                if ($ticketImage->getSize() <= 2 * 1024 * 1024) {
-                                                    $ticketUploadDir = dirname(__DIR__, 2) . '/public/uploads/tickets';
-                                                    if (!is_dir($ticketUploadDir)) {
-                                                        mkdir($ticketUploadDir, 0755, true);
-                                                    }
-
-                                                    // Delete old ticket image if exists
-                                                    if ($ticket->ticket_image && file_exists(dirname(__DIR__, 2) . '/public' . $ticket->ticket_image)) {
-                                                        unlink(dirname(__DIR__, 2) . '/public' . $ticket->ticket_image);
-                                                    }
-
-                                                    $extension = pathinfo($ticketImage->getClientFilename(), PATHINFO_EXTENSION);
-                                                    $filename = 'ticket_' . uniqid() . '_' . time() . '.' . $extension;
-                                                    $filepath = $ticketUploadDir . '/' . $filename;
-
-                                                    $ticketImage->moveTo($filepath);
-                                                    $ticketImagePath = rtrim($_ENV['APP_URL'] ?? 'http://localhost:8000', '/') . '/uploads/tickets/' . $filename;
-                                                }
+                                            try {
+                                                $ticketImagePath = $this->uploadService->replaceFile(
+                                                    $ticketImage,
+                                                    $ticket->ticket_image,
+                                                    'ticket'
+                                                );
+                                            } catch (Exception $e) {
+                                                // Log error but continue
+                                                error_log("Failed to upload ticket image: " . $e->getMessage());
                                             }
                                         }
                                     }
@@ -685,31 +564,17 @@ class EventController
                                         'ticket_image' => $ticketImagePath,
                                     ]);
                                 }
-                            } else {
-                                // Create new ticket
+                                // Create new ticket - handle image upload using UploadService
                                 $ticketImagePath = null;
 
                                 if (isset($uploadedFiles["ticket_image_{$index}"])) {
                                     $ticketImage = $uploadedFiles["ticket_image_{$index}"];
-
                                     if ($ticketImage->getError() === UPLOAD_ERR_OK) {
-                                        $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-                                        $mimeType = $ticketImage->getClientMediaType();
-
-                                        if (in_array($mimeType, $allowedTypes)) {
-                                            if ($ticketImage->getSize() <= 2 * 1024 * 1024) {
-                                                $ticketUploadDir = dirname(__DIR__, 2) . '/public/uploads/tickets';
-                                                if (!is_dir($ticketUploadDir)) {
-                                                    mkdir($ticketUploadDir, 0755, true);
-                                                }
-
-                                                $extension = pathinfo($ticketImage->getClientFilename(), PATHINFO_EXTENSION);
-                                                $filename = 'ticket_' . uniqid() . '_' . time() . '.' . $extension;
-                                                $filepath = $ticketUploadDir . '/' . $filename;
-
-                                                $ticketImage->moveTo($filepath);
-                                                $ticketImagePath = rtrim($_ENV['APP_URL'] ?? 'http://localhost:8000', '/') . '/uploads/tickets/' . $filename;
-                                            }
+                                        try {
+                                            $ticketImagePath = $this->uploadService->uploadFile($ticketImage, 'ticket');
+                                        } catch (Exception $e) {
+                                            // Log error but continue
+                                            error_log("Failed to upload ticket image: " . $e->getMessage());
                                         }
                                     }
                                 }
@@ -833,6 +698,69 @@ class EventController
             ]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch event types', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Submit event for approval (draft -> pending)
+     * PUT /v1/events/{id}/submit-for-approval
+     */
+    public function submitForApproval(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $eventId = (int) $args['id'];
+            $user = $request->getAttribute('user');
+
+            // Find the event
+            $event = Event::find($eventId);
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Verify organizer ownership
+            if ($user->role !== 'organizer' && $user->role !== 'admin') {
+                return ResponseHelper::error($response, 'Only organizers can submit events for approval', 403);
+            }
+
+            $organizer = Organizer::where('user_id', $user->id)->first();
+            if ($user->role === 'organizer' && (!$organizer || $event->organizer_id !== $organizer->id)) {
+                return ResponseHelper::error($response, 'You do not have permission to submit this event', 403);
+            }
+
+            // Check if event is in draft status
+            if ($event->status !== Event::STATUS_DRAFT) {
+                return ResponseHelper::error(
+                    $response,
+                    'Only draft events can be submitted for approval. Current status: ' . $event->status,
+                    400
+                );
+            }
+
+            // Validate that event has required data for submission
+            if (empty($event->title) || empty($event->description)) {
+                return ResponseHelper::error($response, 'Event must have a title and description before submission', 400);
+            }
+
+            if (empty($event->start_time) || empty($event->end_time)) {
+                return ResponseHelper::error($response, 'Event must have start and end times before submission', 400);
+            }
+
+            $ticketsCount = $event->ticketTypes()->count();
+            if ($ticketsCount === 0) {
+                return ResponseHelper::error($response, 'Event must have at least one ticket type before submission', 400);
+            }
+
+            // Update status to pending
+            $event->status = Event::STATUS_PENDING;
+            $event->save();
+
+            return ResponseHelper::success($response, 'Event submitted for admin approval successfully', [
+                'event_id' => $event->id,
+                'status' => $event->status,
+                'message' => 'Your event has been submitted and is now pending admin approval'
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to submit event for approval', 500, $e->getMessage());
         }
     }
 }

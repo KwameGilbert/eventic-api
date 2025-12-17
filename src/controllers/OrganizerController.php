@@ -410,7 +410,7 @@ class OrganizerController
                 $date = Carbon::now()->subDays($i);
                 $dayName = $date->format('D');
 
-                $dayVotes = \App\Models\AwardVote::whereIn('award_id', $awards->pluck('id'))
+                $dayVotes = AwardVote::whereIn('award_id', $awards->pluck('id'))
                     ->where('status', 'paid')
                     ->whereDate('created_at', $date->toDateString())
                     ->sum('number_of_votes');
@@ -698,6 +698,7 @@ class OrganizerController
             $tabs = [
                 ['id' => 'all', 'label' => 'All Events', 'count' => $statusCounts['all']],
                 ['id' => 'published', 'label' => 'Published', 'count' => $statusCounts['published']],
+                ['id' => 'pending', 'label' => 'Pending', 'count' => $statusCounts['pending']],
                 ['id' => 'draft', 'label' => 'Draft', 'count' => $statusCounts['draft']],
                 ['id' => 'completed', 'label' => 'Completed', 'count' => $statusCounts['completed']],
             ];
@@ -1289,11 +1290,12 @@ class OrganizerController
             Award::autoUpdateCompletedStatuses($organizer->id);
 
             // Calculate status counts
-            // Statuses are enum values: draft, completed, published, closed
+            // Statuses are enum values: draft, pending, published, completed, closed
             $now = Carbon::now();
             $statusCounts = [
                 'all' => $awards->count(),
                 'published' => $awards->where('status', 'published')->count(),
+                'pending' => $awards->where('status', 'pending')->count(),
                 'draft' => $awards->where('status', 'draft')->count(),
                 'completed' => $awards->where('status', 'completed')->count(),
                 'closed' => $awards->where('status', 'closed')->count(),
@@ -1376,6 +1378,7 @@ class OrganizerController
             $tabs = [
                 ['id' => 'all', 'label' => 'All', 'count' => $statusCounts['all']],
                 ['id' => 'published', 'label' => 'Published', 'count' => $statusCounts['published']],
+                ['id' => 'pending', 'label' => 'Pending', 'count' => $statusCounts['pending']],
                 ['id' => 'draft', 'label' => 'Draft', 'count' => $statusCounts['draft']],
                 ['id' => 'voting open', 'label' => 'Voting Open', 'count' => $statusCounts['voting_open']], // Computed
                 ['id' => 'completed', 'label' => 'Completed', 'count' => $statusCounts['completed']],
@@ -1437,7 +1440,7 @@ class OrganizerController
             $revenue = $award->getTotalRevenue();
 
             // Count unique voters (by email since award_votes doesn't have user_id)
-            $uniqueVoters = \App\Models\AwardVote::where('award_id', $awardId)
+            $uniqueVoters = AwardVote::where('award_id', $awardId)
                 ->where('status', 'paid')
                 ->whereNotNull('voter_email')
                 ->distinct()

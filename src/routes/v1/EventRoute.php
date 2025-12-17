@@ -43,6 +43,7 @@ return function (App $app): void {
         $group->put('/{id}', [$eventController, 'update']);
         // POST endpoint for update with file uploads (multipart/form-data doesn't work well with PUT)
         $group->post('/{id}', [$eventController, 'update']);
+        $group->put('/{id}/submit-for-approval', [$eventController, 'submitForApproval']);
         $group->delete('/{id}', [$eventController, 'delete']);
     })->add($authMiddleware);
 };

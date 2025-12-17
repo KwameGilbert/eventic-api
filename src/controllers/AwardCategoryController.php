@@ -9,12 +9,19 @@ use App\Models\AwardCategory;
 use App\Models\Event;
 use App\Models\Award;
 use App\Models\Organizer;
+use App\Services\UploadService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Exception;
 
 class AwardCategoryController
 {
+    private UploadService $uploadService;
+
+    public function __construct()
+    {
+        $this->uploadService = new UploadService();
+    }
     /**
      * Get all categories for an event
      * GET /v1/events/{eventId}/award-categories
@@ -162,6 +169,19 @@ public function create(Request $request, Response $response, array $args): Respo
             return ResponseHelper::error($response, 'Invalid status. Must be active or deactivated', 400);
         }
 
+        // Handle image upload using UploadService
+        $uploadedFiles = $request->getUploadedFiles();
+        if (isset($uploadedFiles['image'])) {
+            $image = $uploadedFiles['image'];
+            if ($image->getError() === UPLOAD_ERR_OK) {
+                try {
+                    $data['image'] = $this->uploadService->uploadFile($image, 'image', 'categories');
+                } catch (Exception $e) {
+                    return ResponseHelper::error($response, $e->getMessage(), 400);
+                }
+            }
+        }
+
         $category = AwardCategory::create($data);
 
         return ResponseHelper::success($response, 'Award category created successfully', $category->toArray(), 201);
@@ -204,6 +224,24 @@ public function create(Request $request, Response $response, array $args): Respo
 
             // Don't allow changing event_id
             unset($data['event_id']);
+
+            // Handle image upload using UploadService
+            $uploadedFiles = $request->getUploadedFiles();
+            if (isset($uploadedFiles['image'])) {
+                $image = $uploadedFiles['image'];
+                if ($image->getError() === UPLOAD_ERR_OK) {
+                    try {
+                        $data['image'] = $this->uploadService->replaceFile(
+                            $image,
+                            $category->image,
+                            'image',
+                            'categories'
+                        );
+                    } catch (Exception $e) {
+                        return ResponseHelper::error($response, $e->getMessage(), 400);
+                    }
+                }
+            }
 
             $category->update($data);
 

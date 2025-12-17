@@ -21,9 +21,9 @@ class AwardController
 {
     private UploadService $uploadService;
 
-    public function __construct(UploadService $uploadService)
+    public function __construct()
     {
-        $this->uploadService = $uploadService;
+        $this->uploadService = new UploadService();
         Award::autoUpdateCompletedStatuses();
     }
 
@@ -215,7 +215,17 @@ class AwardController
     public function create(Request $request, Response $response, array $args): Response
     {
         try {
+            // Get data from either JSON body or form data (for multipart/form-data requests)
             $data = $request->getParsedBody();
+            if ($data === null) {
+                // For multipart/form-data, getParsedBody() returns null
+                // In this case, use $_POST which contains the form data
+                $data = $_POST;
+            }
+            if (!is_array($data)) {
+                $data = [];
+            }
+            
             $user = $request->getAttribute('user');
             $uploadedFiles = $request->getUploadedFiles();
 
@@ -297,13 +307,7 @@ class AwardController
                     } catch (Exception $e) {
                         return ResponseHelper::error($response, $e->getMessage(), 400);
                     }
-                } else {
-                    // Ensure banner_image is null if upload failed or not provided
-                    $data['banner_image'] = null;
                 }
-            } else {
-                // Ensure banner_image is null if not provided
-                $data['banner_image'] = null;
             }
 
             $award = Award::create($data);
@@ -340,7 +344,18 @@ class AwardController
     {
         try {
             $id = $args['id'];
+            
+            // Get data from either JSON body or form data (for multipart/form-data requests)
             $data = $request->getParsedBody();
+            if ($data === null) {
+                // For multipart/form-data, getParsedBody() returns null
+                // In this case, use $_POST which contains the form data
+                $data = $_POST;
+            }
+            if (!is_array($data)) {
+                $data = [];
+            }
+            
             $uploadedFiles = $request->getUploadedFiles();
 
             $award = Award::find($id);
