@@ -41,9 +41,8 @@ class PayoutController
             $queryParams = $request->getQueryParams();
             $status = $queryParams['status'] ?? null;
             $type = $queryParams['type'] ?? null;
-            $limit = min((int) ($queryParams['limit'] ?? 20), 100);
-            $page = max((int) ($queryParams['page'] ?? 1), 1);
 
+            // Only fetch payouts for this specific organizer
             $query = PayoutRequest::where('organizer_id', $organizer->id)
                 ->with(['event', 'award'])
                 ->orderBy('created_at', 'desc');
@@ -56,16 +55,12 @@ class PayoutController
                 $query->where('payout_type', $type);
             }
 
-            $payouts = $query->paginate($limit, ['*'], 'page', $page);
+            // Get all payouts without pagination
+            $payouts = $query->get();
 
             $data = [
-                'payouts' => $payouts->items(),
-                'pagination' => [
-                    'current_page' => $payouts->currentPage(),
-                    'per_page' => $payouts->perPage(),
-                    'total' => $payouts->total(),
-                    'last_page' => $payouts->lastPage(),
-                ],
+                'payouts' => $payouts->toArray(),
+                'count' => $payouts->count(),
             ];
 
             return ResponseHelper::success($response, 'Payouts fetched successfully', $data);
@@ -136,9 +131,28 @@ class PayoutController
                 return ResponseHelper::error($response, 'Event not found or not owned by you', 404);
             }
 
-            // Validate required fields
-            if (empty($data['payment_method']) || empty($data['account_number']) || empty($data['account_name'])) {
-                return ResponseHelper::error($response, 'Payment method, account number, and account name are required', 400);
+            // Validate payment method
+            $paymentMethod = $data['payment_method'] ?? null;
+            if (!$paymentMethod || !in_array($paymentMethod, ['mobile_money', 'bank_transfer'])) {
+                return ResponseHelper::error($response, 'Valid payment method is required (mobile_money or bank_transfer)', 400);
+            }
+
+            // Validate payment details based on method
+            if ($paymentMethod === 'mobile_money') {
+                if (empty($data['mobile_network']) || empty($data['mobile_number']) || empty($data['account_name'])) {
+                    return ResponseHelper::error($response, 'Mobile network, account name, and mobile number are required for mobile money', 400);
+                }
+                $accountNumber = $data['mobile_number'];
+                $accountName = $data['account_name'];
+                $bankName = $data['mobile_network'];
+            } else {
+                // bank_transfer
+                if (empty($data['bank_name']) || empty($data['account_name']) || empty($data['account_number'])) {
+                    return ResponseHelper::error($response, 'Bank name, account name, and account number are required for bank transfer', 400);
+                }
+                $accountNumber = $data['account_number'];
+                $accountName = $data['account_name'];
+                $bankName = $data['bank_name'];
             }
 
             // Check for pending payout requests
@@ -151,25 +165,28 @@ class PayoutController
                 return ResponseHelper::error($response, 'You already have a pending payout request for this event', 400);
             }
 
+            // Validate amount
+            if (empty($data['amount']) || !is_numeric($data['amount'])) {
+                return ResponseHelper::error($response, 'Amount is required', 400);
+            }
+
+            $requestedAmount = (float) $data['amount'];
+
+            if ($requestedAmount <= 0) {
+                return ResponseHelper::error($response, 'Amount must be greater than zero', 400);
+            }
+
             // Get balance
             $balance = OrganizerBalance::getOrCreate($organizer->id);
+            $availableAmount = (float) $balance->available_balance;
 
-            if (!$balance->canRequestPayout()) {
-                $minAmount = PlatformSetting::getMinPayoutAmount();
+            $minAmount = PlatformSetting::getMinPayoutAmount();
+            if ($requestedAmount < $minAmount) {
                 return ResponseHelper::error($response, "Minimum payout amount is GHS {$minAmount}", 400);
             }
 
-            // Calculate available amount for this event (simplified - in production you'd track per-event)
-            $availableAmount = $balance->available_balance;
-
-            $requestedAmount = (float) ($data['amount'] ?? $availableAmount);
-
             if ($requestedAmount > $availableAmount) {
-                return ResponseHelper::error($response, 'Requested amount exceeds available balance', 400);
-            }
-
-            if ($requestedAmount < PlatformSetting::getMinPayoutAmount()) {
-                return ResponseHelper::error($response, 'Amount below minimum payout threshold', 400);
+                return ResponseHelper::error($response, "Requested amount (GHS {$requestedAmount}) exceeds available balance (GHS {$availableAmount})", 400);
             }
 
             // Create payout request
@@ -180,10 +197,10 @@ class PayoutController
                 'amount' => $requestedAmount,
                 'gross_amount' => $requestedAmount,
                 'admin_fee' => 0, // No additional fee for payout
-                'payment_method' => $data['payment_method'],
-                'account_number' => $data['account_number'],
-                'account_name' => $data['account_name'],
-                'bank_name' => $data['bank_name'] ?? null,
+                'payment_method' => $paymentMethod,
+                'account_number' => $accountNumber,
+                'account_name' => $accountName,
+                'bank_name' => $bankName,
                 'status' => PayoutRequest::STATUS_PENDING,
                 'notes' => $data['notes'] ?? null,
             ]);
@@ -223,9 +240,28 @@ class PayoutController
                 return ResponseHelper::error($response, 'Award not found or not owned by you', 404);
             }
 
-            // Validate required fields
-            if (empty($data['payment_method']) || empty($data['account_number']) || empty($data['account_name'])) {
-                return ResponseHelper::error($response, 'Payment method, account number, and account name are required', 400);
+            // Validate payment method
+            $paymentMethod = $data['payment_method'] ?? null;
+            if (!$paymentMethod || !in_array($paymentMethod, ['mobile_money', 'bank_transfer'])) {
+                return ResponseHelper::error($response, 'Valid payment method is required (mobile_money or bank_transfer)', 400);
+            }
+
+            // Validate payment details based on method
+            if ($paymentMethod === 'mobile_money') {
+                if (empty($data['mobile_network']) || empty($data['mobile_number']) || empty($data['account_name'])) {
+                    return ResponseHelper::error($response, 'Mobile network, account name, and mobile number are required for mobile money', 400);
+                }
+                $accountNumber = $data['mobile_number'];
+                $accountName = $data['account_name'];
+                $bankName = $data['mobile_network'];
+            } else {
+                // bank_transfer
+                if (empty($data['bank_name']) || empty($data['account_name']) || empty($data['account_number'])) {
+                    return ResponseHelper::error($response, 'Bank name, account name, and account number are required for bank transfer', 400);
+                }
+                $accountNumber = $data['account_number'];
+                $accountName = $data['account_name'];
+                $bankName = $data['bank_name'];
             }
 
             // Check for pending payout requests
@@ -238,23 +274,28 @@ class PayoutController
                 return ResponseHelper::error($response, 'You already have a pending payout request for this award', 400);
             }
 
+            // Validate amount
+            if (empty($data['amount']) || !is_numeric($data['amount'])) {
+                return ResponseHelper::error($response, 'Amount is required', 400);
+            }
+
+            $requestedAmount = (float) $data['amount'];
+
+            if ($requestedAmount <= 0) {
+                return ResponseHelper::error($response, 'Amount must be greater than zero', 400);
+            }
+
             // Get balance
             $balance = OrganizerBalance::getOrCreate($organizer->id);
+            $availableAmount = (float) $balance->available_balance;
 
-            if (!$balance->canRequestPayout()) {
-                $minAmount = PlatformSetting::getMinPayoutAmount();
+            $minAmount = PlatformSetting::getMinPayoutAmount();
+            if ($requestedAmount < $minAmount) {
                 return ResponseHelper::error($response, "Minimum payout amount is GHS {$minAmount}", 400);
             }
 
-            $availableAmount = $balance->available_balance;
-            $requestedAmount = (float) ($data['amount'] ?? $availableAmount);
-
             if ($requestedAmount > $availableAmount) {
-                return ResponseHelper::error($response, 'Requested amount exceeds available balance', 400);
-            }
-
-            if ($requestedAmount < PlatformSetting::getMinPayoutAmount()) {
-                return ResponseHelper::error($response, 'Amount below minimum payout threshold', 400);
+                return ResponseHelper::error($response, "Requested amount (GHS {$requestedAmount}) exceeds available balance (GHS {$availableAmount})", 400);
             }
 
             // Create payout request
@@ -265,10 +306,10 @@ class PayoutController
                 'amount' => $requestedAmount,
                 'gross_amount' => $requestedAmount,
                 'admin_fee' => 0,
-                'payment_method' => $data['payment_method'],
-                'account_number' => $data['account_number'],
-                'account_name' => $data['account_name'],
-                'bank_name' => $data['bank_name'] ?? null,
+                'payment_method' => $paymentMethod,
+                'account_number' => $accountNumber,
+                'account_name' => $accountName,
+                'bank_name' => $bankName,
                 'status' => PayoutRequest::STATUS_PENDING,
                 'notes' => $data['notes'] ?? null,
             ]);
@@ -348,8 +389,6 @@ class PayoutController
             $queryParams = $request->getQueryParams();
             $status = $queryParams['status'] ?? null;
             $type = $queryParams['type'] ?? null;
-            $limit = min((int) ($queryParams['limit'] ?? 20), 100);
-            $page = max((int) ($queryParams['page'] ?? 1), 1);
 
             $query = PayoutRequest::with(['organizer.user', 'event', 'award', 'processor'])
                 ->orderBy('created_at', 'desc');
@@ -362,10 +401,11 @@ class PayoutController
                 $query->where('payout_type', $type);
             }
 
-            $payouts = $query->paginate($limit, ['*'], 'page', $page);
+            // Get all payouts without pagination
+            $payouts = $query->get();
 
             $data = [
-                'payouts' => collect($payouts->items())->map(function ($payout) {
+                'payouts' => $payouts->map(function ($payout) {
                     return [
                         'id' => $payout->id,
                         'organizer' => $payout->organizer ? [
@@ -388,13 +428,8 @@ class PayoutController
                         'notes' => $payout->notes,
                         'created_at' => $payout->created_at->toIso8601String(),
                     ];
-                }),
-                'pagination' => [
-                    'current_page' => $payouts->currentPage(),
-                    'per_page' => $payouts->perPage(),
-                    'total' => $payouts->total(),
-                    'last_page' => $payouts->lastPage(),
-                ],
+                })->toArray(),
+                'count' => $payouts->count(),
             ];
 
             return ResponseHelper::success($response, 'Payouts fetched successfully', $data);

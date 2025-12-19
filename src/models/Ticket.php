@@ -39,6 +39,8 @@ class Ticket extends Model
         'ticket_code',
         'status',
         'attendee_id',
+        'admitted_by',
+        'admitted_at',
     ];
 
     protected $casts = [
@@ -46,6 +48,8 @@ class Ticket extends Model
         'event_id' => 'integer',
         'ticket_type_id' => 'integer',
         'attendee_id' => 'integer',
+        'admitted_by' => 'integer',
+        'admitted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

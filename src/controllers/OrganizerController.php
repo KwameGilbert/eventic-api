@@ -1579,46 +1579,50 @@ class OrganizerController
             // === TOP PERFORMERS ===
             $topEvent = $events->sortByDesc(function ($event) {
                 return OrderItem::where('event_id', $event->id)
-                    ->where('status', 'paid')
+                    ->whereHas('order', function ($query) {
+                        $query->where('status', 'paid');
+                    })
                     ->sum('total_price');
             })->first();
 
             $topAward = $awards->sortByDesc(function ($award) {
-                return AwardVote::where('event_id', $award->id)
+                return AwardVote::where('award_id', $award->id)
                     ->where('status', 'paid')
                     ->sum('number_of_votes');
             })->first();
 
             $topEventRevenue = $topEvent ? OrderItem::where('event_id', $topEvent->id)
-                ->where('status', 'paid')
+                ->whereHas('order', function ($query) {
+                    $query->where('status', 'paid');
+                })
                 ->sum('total_price') : 0;
 
-            $topAwardVotes = $topAward ? AwardVote::where('event_id', $topAward->id)
+            $topAwardVotes = $topAward ? AwardVote::where('award_id', $topAward->id)
                 ->where('status', 'paid')
                 ->sum('number_of_votes') : 0;
 
             $data = [
                 'summary' => [
-                    'total_gross_revenue' => round($totalGrossRevenue, 2),
-                    'total_platform_fees' => round($totalPlatformFees, 2),
-                    'total_net_revenue' => round($totalNetRevenue, 2),
-                    'available_balance' => round($availableBalance, 2),
-                    'pending_balance' => round($pendingBalance, 2),
-                    'completed_payouts' => round($completedPayouts, 2),
-                    'lifetime_earnings' => round($totalNetRevenue, 2),
+                    'total_gross_revenue' => round(floatval($totalGrossRevenue), 2),
+                    'total_platform_fees' => round(floatval($totalPlatformFees), 2),
+                    'total_net_revenue' => round(floatval($totalNetRevenue), 2),
+                    'available_balance' => round(floatval($availableBalance), 2),
+                    'pending_balance' => round(floatval($pendingBalance), 2),
+                    'completed_payouts' => round(floatval($completedPayouts), 2),
+                    'lifetime_earnings' => round(floatval($totalNetRevenue), 2),
                 ],
                 'revenue_breakdown' => [
                     'events_revenue' => [
-                        'gross' => round($eventsRevenue['total_gross'], 2),
-                        'fees' => round($eventsRevenue['total_fees'], 2),
-                        'net' => round($eventsRevenue['total_net'], 2),
-                        'percentage' => $totalGrossRevenue > 0 ? round(($eventsRevenue['total_gross'] / $totalGrossRevenue) * 100, 1) : 0,
+                        'gross' => round(floatval($eventsRevenue['total_gross']), 2),
+                        'fees' => round(floatval($eventsRevenue['total_fees']), 2),
+                        'net' => round(floatval($eventsRevenue['total_net']), 2),
+                        'percentage' => $totalGrossRevenue > 0 ? round((floatval($eventsRevenue['total_gross']) / floatval($totalGrossRevenue)) * 100, 1) : 0,
                     ],
                     'awards_revenue' => [
-                        'gross' => round($awardsRevenue['total_gross'], 2),
-                        'fees' => round($awardsRevenue['total_fees'], 2),
-                        'net' => round($awardsRevenue['total_net'], 2),
-                        'percentage' => $totalGrossRevenue > 0 ? round(($awardsRevenue['total_gross'] / $totalGrossRevenue) * 100, 1) : 0,
+                        'gross' => round(floatval($awardsRevenue['total_gross']), 2),
+                        'fees' => round(floatval($awardsRevenue['total_fees']), 2),
+                        'net' => round(floatval($awardsRevenue['total_net']), 2),
+                        'percentage' => $totalGrossRevenue > 0 ? round((floatval($awardsRevenue['total_gross']) / floatval($totalGrossRevenue)) * 100, 1) : 0,
                     ],
                 ],
                 'monthly_trend' => $monthlyTrend,
@@ -1626,13 +1630,13 @@ class OrganizerController
                     'top_event' => $topEvent ? [
                         'id' => $topEvent->id,
                         'name' => $topEvent->title,
-                        'revenue' => round($topEventRevenue, 2),
+                        'revenue' => round(floatval($topEventRevenue), 2),
                     ] : null,
                     'top_award' => $topAward ? [
                         'id' => $topAward->id,
                         'name' => $topAward->title,
-                        'votes' => $topAwardVotes,
-                        'revenue' => round($topAwardVotes * 5, 2), // Assuming $5 per vote average
+                        'votes' => intval($topAwardVotes),
+                        'revenue' => round(floatval($topAwardVotes) * 5, 2), // Assuming $5 per vote average
                     ] : null,
                 ],
             ];
@@ -1743,7 +1747,7 @@ class OrganizerController
             $totals = ['total_votes' => 0, 'total_gross' => 0, 'total_fees' => 0, 'total_net' => 0];
 
             foreach ($awards as $award) {
-                $votes = AwardVote::where('event_id', $award->id)
+                $votes = AwardVote::where('award_id', $award->id)
                     ->where('status', 'paid')
                     ->get();
 
@@ -1954,7 +1958,9 @@ class OrganizerController
                 ->pluck('id')->toArray();
             
             $eventsRevenue = OrderItem::whereIn('event_id', $eventIds)
-                ->where('status', 'paid')
+                ->whereHas('order', function ($query) {
+                    $query->where('status', 'paid');
+                })
                 ->sum('total_price');
 
             // Awards revenue for this month
@@ -1962,7 +1968,7 @@ class OrganizerController
                 ->whereBetween('ceremony_date', [$monthStart, $monthEnd])
                 ->pluck('id')->toArray();
             
-            $votes = AwardVote::whereIn('event_id', $awardIds)
+            $votes = AwardVote::whereIn('award_id', $awardIds)
                 ->where('status', 'paid')
                 ->with('category')
                 ->get();
@@ -1973,8 +1979,8 @@ class OrganizerController
 
             $trend[] = [
                 'month' => $month->format('M Y'),
-                'events' => round($eventsRevenue, 2),
-                'awards' => round($awardsRevenue, 2),
+                'events' => round(floatval($eventsRevenue), 2),
+                'awards' => round(floatval($awardsRevenue), 2),
             ];
         }
 
@@ -2011,6 +2017,129 @@ class OrganizerController
         }
 
         return false;
+    }
+
+    /**
+     * Get all attendees for organizer's events
+     * GET /v1/organizers/data/attendees
+     */
+    public function getAttendees(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $user = $request->getAttribute('user');
+            $organizer = Organizer::where('user_id', $user->id)->first();
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $queryParams = $request->getQueryParams();
+            $eventId = $queryParams['event_id'] ?? null;
+            $status = $queryParams['status'] ?? null; // 'checked-in', 'not-checked-in'
+            $search = $queryParams['search'] ?? null;
+
+            // Get all organizer's event IDs
+            $eventIds = Event::where('organizer_id', $organizer->id)->pluck('id')->toArray();
+
+            if (empty($eventIds)) {
+                return ResponseHelper::success($response, 'Attendees retrieved successfully', [
+                    'attendees' => [],
+                    'stats' => [
+                        'total_attendees' => 0,
+                        'checked_in' => 0,
+                        'not_checked_in' => 0,
+                        'total_events' => 0,
+                    ],
+                    'events' => [],
+                ]);
+            }
+
+            // Build tickets query with relationships
+            $ticketsQuery = Ticket::whereIn('event_id', $eventIds)
+                ->with(['order', 'event', 'ticketType']);
+
+            // Filter by specific event if provided
+            if ($eventId) {
+                $ticketsQuery->where('event_id', $eventId);
+            }
+
+            // Filter by check-in status
+            if ($status === 'checked-in') {
+                $ticketsQuery->where('status', 'used');
+            } elseif ($status === 'not-checked-in') {
+                $ticketsQuery->where('status', 'active');
+            }
+
+            // Get tickets
+            $tickets = $ticketsQuery->orderBy('created_at', 'desc')->get();
+
+            // Apply search filter after getting results (for customer info from order)
+            $attendees = $tickets->map(function ($ticket) {
+                $order = $ticket->order;
+                $event = $ticket->event;
+                $ticketType = $ticket->ticketType;
+
+                return [
+                    'id' => $ticket->id,
+                    'ticket_code' => $ticket->ticket_code,
+                    'name' => $order->customer_name ?? 'Unknown',
+                    'email' => $order->customer_email ?? '',
+                    'phone' => $order->customer_phone ?? '',
+                    'avatar' => 'https://ui-avatars.com/api/?name=' . urlencode($order->customer_name ?? 'U') . '&background=random&color=fff',
+                    'event' => $event->name ?? 'Unknown Event',
+                    'event_id' => $ticket->event_id,
+                    'ticket_type' => $ticketType->name ?? 'Standard',
+                    'ticket_count' => 1, // Each ticket row represents 1 ticket
+                    'order_id' => $order->id,
+                    'order_reference' => 'ORD-' . str_pad((string)$order->id, 6, '0', STR_PAD_LEFT),
+                    'order_date' => $order->created_at ? $order->created_at->format('Y-m-d') : null,
+                    'checked_in' => $ticket->status === 'used',
+                    'check_in_time' => $ticket->admitted_at ? $ticket->admitted_at : null,
+                    'status' => $ticket->status,
+                ];
+            });
+
+            // Apply search filter
+            if ($search) {
+                $searchLower = strtolower($search);
+                $attendees = $attendees->filter(function ($attendee) use ($searchLower) {
+                    return str_contains(strtolower($attendee['name']), $searchLower) ||
+                           str_contains(strtolower($attendee['email']), $searchLower) ||
+                           str_contains(strtolower($attendee['order_reference']), $searchLower) ||
+                           str_contains(strtolower($attendee['ticket_code']), $searchLower);
+                });
+            }
+
+            // Calculate stats
+            $allTickets = Ticket::whereIn('event_id', $eventIds)->get();
+            $stats = [
+                'total_attendees' => $allTickets->count(),
+                'checked_in' => $allTickets->where('status', 'used')->count(),
+                'not_checked_in' => $allTickets->where('status', 'active')->count(),
+                'total_events' => count($eventIds),
+            ];
+
+            // Get events for filter dropdown
+            $events = Event::whereIn('id', $eventIds)
+                ->select('id', 'name', 'start_date')
+                ->orderBy('start_date', 'desc')
+                ->get()
+                ->map(function ($event) {
+                    return [
+                        'id' => $event->id,
+                        'name' => $event->name,
+                    ];
+                });
+
+            return ResponseHelper::success($response, 'Attendees retrieved successfully', [
+                'attendees' => $attendees->values()->toArray(),
+                'stats' => $stats,
+                'events' => $events->toArray(),
+                'count' => $attendees->count(),
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch attendees', 500, $e->getMessage());
+        }
     }
 }
 
