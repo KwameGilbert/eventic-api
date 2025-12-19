@@ -8,8 +8,11 @@ use App\Helper\ResponseHelper;
 use App\Models\AwardVote;
 use App\Models\AwardNominee;
 use App\Models\AwardCategory;
+use App\Models\Award;
 use App\Models\Event;
 use App\Models\Organizer;
+use App\Models\Transaction;
+use App\Models\OrganizerBalance;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Exception;
@@ -57,20 +60,35 @@ class AwardVoteController
                 return ResponseHelper::error($response, 'Voter email is required', 400);
             }
 
-            // Calculate total amount
+            // Calculate total amount and revenue split
             $numberOfVotes = (int) $data['number_of_votes'];
             $costPerVote = (float) $category->cost_per_vote;
             $totalAmount = $numberOfVotes * $costPerVote;
 
+            // Get award for revenue share calculation
+            $award = Award::find($category->award_id);
+            $revenueSplit = $award ? $award->calculateRevenueSplit($totalAmount) : [
+                'admin_share_percent' => 15,
+                'organizer_amount' => $totalAmount * 0.85,
+                'admin_amount' => $totalAmount * 0.15 - ($totalAmount * 0.015),
+                'payment_fee' => $totalAmount * 0.015,
+            ];
+
             // Generate payment reference
             $reference = 'VOTE-' . $nomineeId . '-' . time() . '-' . uniqid();
 
-            // Create pending vote
+            // Create pending vote with financial data
             $vote = AwardVote::create([
                 'nominee_id' => $nomineeId,
                 'category_id' => $category->id,
-                'event_id' => $nominee->event_id,
+                'award_id' => $category->award_id,
                 'number_of_votes' => $numberOfVotes,
+                'cost_per_vote' => $costPerVote,
+                'gross_amount' => $totalAmount,
+                'admin_share_percent' => $revenueSplit['admin_share_percent'],
+                'admin_amount' => $revenueSplit['admin_amount'],
+                'organizer_amount' => $revenueSplit['organizer_amount'],
+                'payment_fee' => $revenueSplit['payment_fee'],
                 'status' => 'pending',
                 'reference' => $reference,
                 'voter_name' => $data['voter_name'] ?? null,
@@ -125,8 +143,8 @@ class AwardVoteController
 
             $reference = $data['reference'];
 
-            // Find vote by reference
-            $vote = AwardVote::with('category')->where('reference', $reference)->first();
+            // Find vote by reference with award relationship
+            $vote = AwardVote::with(['category', 'award.organizer'])->where('reference', $reference)->first();
 
             if (!$vote) {
                 return ResponseHelper::error($response, 'Vote not found', 404);
@@ -156,7 +174,7 @@ class AwardVoteController
             $expectedAmount = $vote->getTotalAmount();
             $paidAmount = $paymentData['amount'] / 100;
 
-            if (abs($paidAmount - $expectedAmount) > 0.01) { // Allow for minor rounding differences
+            if (abs($paidAmount - $expectedAmount) > 0.01) {
                 return ResponseHelper::error($response, 'Payment amount mismatch', 400, [
                     'expected' => $expectedAmount,
                     'paid' => $paidAmount,
@@ -165,6 +183,28 @@ class AwardVoteController
 
             // Mark vote as paid
             $vote->markAsPaid();
+
+            // Create transaction and update organizer balance
+            $award = $vote->award;
+            if ($award && $award->organizer) {
+                $organizerId = $award->organizer->id;
+
+                // Create transaction
+                Transaction::createVotePurchase(
+                    $organizerId,
+                    $vote->award_id,
+                    $vote->id,
+                    (float) $vote->gross_amount,
+                    (float) $vote->admin_amount,
+                    (float) $vote->organizer_amount,
+                    (float) $vote->payment_fee,
+                    "Vote purchase: {$award->title}"
+                );
+
+                // Update organizer balance (add to pending)
+                $balance = OrganizerBalance::getOrCreate($organizerId);
+                $balance->addPendingEarnings((float) $vote->organizer_amount);
+            }
 
             return ResponseHelper::success($response, 'Vote payment confirmed successfully', $vote->fresh()->getDetails());
         } catch (Exception $e) {
@@ -314,34 +354,34 @@ class AwardVoteController
     }
 
     /**
-     * Get all votes for an event (organizer only)
-     * GET /v1/events/{eventId}/votes
+     * Get all votes for an award (organizer only)
+     * GET /v1/awards/{awardId}/votes
      */
-    public function getByEvent(Request $request, Response $response, array $args): Response
+    public function getByAward(Request $request, Response $response, array $args): Response
     {
         try {
-            $eventId = $args['eventId'];
+            $awardId = $args['awardId'];
             $user = $request->getAttribute('user');
             $queryParams = $request->getQueryParams();
             $statusFilter = $queryParams['status'] ?? null;
 
-            // Verify event exists
-            $event = Event::find($eventId);
-            if (!$event) {
-                return ResponseHelper::error($response, 'Event not found', 404);
+            // Verify award exists
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
             }
 
-            // Authorization: Check if user owns the event
+            // Authorization: Check if user owns the award
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || $organizer->id !== $event->organizer_id) {
-                    return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
+                if (!$organizer || $organizer->id !== $award->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
                 }
             }
 
             // Build query
             $query = AwardVote::with(['nominee', 'category'])
-                ->where('event_id', $eventId);
+                ->where('award_id', $awardId);
 
             if ($statusFilter && in_array($statusFilter, ['pending', 'paid'])) {
                 $query->where('status', $statusFilter);
@@ -365,12 +405,12 @@ class AwardVoteController
                 'pending_transactions' => $votes->where('status', 'pending')->count(),
             ];
 
-            return ResponseHelper::success($response, 'Event votes fetched successfully', [
+            return ResponseHelper::success($response, 'Award votes fetched successfully', [
                 'votes' => $votesData->toArray(),
                 'summary' => $summary,
             ]);
         } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to fetch event votes', 500, $e->getMessage());
+            return ResponseHelper::error($response, 'Failed to fetch award votes', 500, $e->getMessage());
         }
     }
 
@@ -427,38 +467,38 @@ class AwardVoteController
     }
 
     /**
-     * Get event-wide voting statistics (organizer only)
-     * GET /v1/events/{eventId}/vote-stats
+     * Get award-wide voting statistics (organizer only)
+     * GET /v1/awards/{awardId}/vote-stats
      */
-    public function getEventStats(Request $request, Response $response, array $args): Response
+    public function getAwardStats(Request $request, Response $response, array $args): Response
     {
         try {
-            $eventId = $args['eventId'];
+            $awardId = $args['awardId'];
             $user = $request->getAttribute('user');
 
-            // Verify event exists
-            $event = Event::with(['awardCategories.nominees'])->find($eventId);
-            if (!$event) {
-                return ResponseHelper::error($response, 'Event not found', 404);
+            // Verify award exists
+            $award = Award::with(['categories.nominees'])->find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
             }
 
             // Authorization
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                if (!$organizer || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized', 403);
                 }
             }
 
             // Calculate overall stats
-            $totalVotes = AwardVote::where('event_id', $eventId)
+            $totalVotes = AwardVote::where('award_id', $awardId)
                 ->where('status', 'paid')
                 ->sum('number_of_votes');
 
             $totalRevenue = 0;
             $categoryStats = [];
 
-            foreach ($event->awardCategories as $category) {
+            foreach ($award->categories as $category) {
                 $categoryVotes = $category->getTotalVotes();
                 $categoryRevenue = $category->getCategoryTotalRevenue();
                 $totalRevenue += $categoryRevenue;
@@ -473,18 +513,18 @@ class AwardVoteController
             }
 
             $stats = [
-                'total_categories' => $event->awardCategories->count(),
-                'total_nominees' => AwardNominee::where('event_id', $eventId)->count(),
+                'total_categories' => $award->categories->count(),
+                'total_nominees' => AwardNominee::where('award_id', $awardId)->count(),
                 'total_votes' => $totalVotes,
                 'total_revenue' => $totalRevenue,
-                'paid_transactions' => AwardVote::where('event_id', $eventId)->where('status', 'paid')->count(),
-                'pending_transactions' => AwardVote::where('event_id', $eventId)->where('status', 'pending')->count(),
+                'paid_transactions' => AwardVote::where('award_id', $awardId)->where('status', 'paid')->count(),
+                'pending_transactions' => AwardVote::where('award_id', $awardId)->where('status', 'pending')->count(),
                 'category_breakdown' => $categoryStats,
             ];
 
-            return ResponseHelper::success($response, 'Event vote statistics fetched successfully', $stats);
+            return ResponseHelper::success($response, 'Award vote statistics fetched successfully', $stats);
         } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to fetch event statistics', 500, $e->getMessage());
+            return ResponseHelper::error($response, 'Failed to fetch award statistics', 500, $e->getMessage());
         }
     }
 

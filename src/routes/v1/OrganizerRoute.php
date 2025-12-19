@@ -54,9 +54,12 @@ return function (App $app): void {
         // Finance - detailed awards revenue
         $group->get('/finance/awards', [$organizerController, 'getAwardsRevenue']);
 
+        // Note: Payout routes (/finance/balance, /finance/payouts/*) are in PayoutRoute.php
+
         // CRUD operations
         $group->post('', [$organizerController, 'create']);
         $group->put('/{id}', [$organizerController, 'update']);
         $group->delete('/{id}', [$organizerController, 'delete']);
     })->add($authMiddleware);
 };
+

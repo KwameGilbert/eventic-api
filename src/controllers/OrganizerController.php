@@ -13,6 +13,7 @@ use App\Models\TicketType;
 use App\Models\User;
 use App\Models\Award;
 use App\Models\AwardVote;
+use App\Models\OrganizerBalance;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -1828,43 +1829,65 @@ class OrganizerController
             })
             ->get();
 
+        // Use stored financial data if available, otherwise fall back to calculation
         $grossRevenue = $orderItems->sum('total_price');
-        $platformFee = $grossRevenue * 0.015; // 1.5%
-        $netRevenue = $grossRevenue - $platformFee;
+        $adminFees = $orderItems->sum('admin_amount');
+        $organizerNet = $orderItems->sum('organizer_amount');
+        
+        // If no stored data, calculate with default rates
+        if ($organizerNet == 0 && $grossRevenue > 0) {
+            $platformFee = $grossRevenue * 0.015; // 1.5% legacy fallback
+            $organizerNet = $grossRevenue - $platformFee;
+            $adminFees = $platformFee;
+        }
 
         return [
             'total_gross' => $grossRevenue,
-            'total_fees' => $platformFee,
-            'total_net' => $netRevenue,
+            'total_fees' => $adminFees,
+            'total_net' => $organizerNet,
         ];
     }
 
     private function calculateAwardsRevenue($awardIds): array
     {
-        $votes = AwardVote::whereIn('event_id', $awardIds)
+        $votes = AwardVote::whereIn('award_id', $awardIds)
             ->where('status', 'paid')
-            ->with('category')
             ->get();
 
-        $grossRevenue = $votes->sum(function ($vote) {
-            $costPerVote = $vote->category->cost_per_vote ?? 5;
-            return $vote->number_of_votes * $costPerVote;
-        });
-
-        $platformFee = $grossRevenue * 0.05; // 5%
-        $netRevenue = $grossRevenue - $platformFee;
+        // Use stored financial data if available
+        $grossRevenue = $votes->sum('gross_amount');
+        $adminFees = $votes->sum('admin_amount');
+        $organizerNet = $votes->sum('organizer_amount');
+        
+        // If no stored data, fall back to calculation
+        if ($grossRevenue == 0 && $votes->count() > 0) {
+            $grossRevenue = $votes->sum(function ($vote) {
+                return $vote->number_of_votes * ($vote->cost_per_vote ?? 5);
+            });
+            $platformFee = $grossRevenue * 0.05; // 5% legacy fallback
+            $organizerNet = $grossRevenue - $platformFee;
+            $adminFees = $platformFee;
+        }
 
         return [
             'total_gross' => $grossRevenue,
-            'total_fees' => $platformFee,
-            'total_net' => $netRevenue,
+            'total_fees' => $adminFees,
+            'total_net' => $organizerNet,
         ];
     }
 
     private function calculateAvailableBalance($organizerId): float
     {
+        // First try to get from OrganizerBalance table
+        $balance = OrganizerBalance::where('organizer_id', $organizerId)->first();
+        if ($balance) {
+            $balance->recalculateFromTransactions();
+            return (float) $balance->available_balance;
+        }
+
+        // Legacy calculation for backwards compatibility
         $sevenDaysAgo = Carbon::now()->subDays(7);
-        $balance = 0;
+        $availableBalance = 0;
 
         // Events completed > 7 days ago
         $eligibleEvents = Event::where('organizer_id', $organizerId)
@@ -1875,10 +1898,19 @@ class OrganizerController
             ->get();
 
         foreach ($eligibleEvents as $event) {
-            $gross = OrderItem::where('event_id', $event->id)
-                ->where('status', 'paid')
-                ->sum('total_price');
-            $balance += $gross * 0.985; // Net after 1.5% fee
+            $orderItems = OrderItem::where('event_id', $event->id)
+                ->whereHas('order', function ($q) {
+                    $q->where('status', 'paid');
+                })
+                ->get();
+            
+            // Try stored data first
+            $net = $orderItems->sum('organizer_amount');
+            if ($net == 0) {
+                $gross = $orderItems->sum('total_price');
+                $net = $gross * 0.985; // Net after 1.5% fee
+            }
+            $availableBalance += $net;
         }
 
         // Awards with voting ended > 7 days ago
@@ -1890,18 +1922,22 @@ class OrganizerController
             ->get();
 
         foreach ($eligibleAwards as $award) {
-            $votes = AwardVote::where('event_id', $award->id)
+            $votes = AwardVote::where('award_id', $award->id)
                 ->where('status', 'paid')
-                ->with('category')
                 ->get();
             
-            $gross = $votes->sum(function ($vote) {
-                return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
-            });
-            $balance += $gross * 0.95; // Net after 5% fee
+            // Try stored data first
+            $net = $votes->sum('organizer_amount');
+            if ($net == 0) {
+                $gross = $votes->sum(function ($vote) {
+                    return $vote->number_of_votes * ($vote->cost_per_vote ?? 5);
+                });
+                $net = $gross * 0.95; // Net after 5% fee
+            }
+            $availableBalance += $net;
         }
 
-        return $balance;
+        return $availableBalance;
     }
 
     private function getMonthlyRevenueTrend($organizerId): array

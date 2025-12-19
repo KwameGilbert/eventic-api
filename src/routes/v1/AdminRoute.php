@@ -28,5 +28,8 @@ return function (App $app): void {
         // Award Approvals
         $group->put('/awards/{id}/approve', [$adminController, 'approveAward']);
         $group->put('/awards/{id}/reject', [$adminController, 'rejectAward']);
+
+        // Note: Payout management routes (/payouts/*) are in PayoutRoute.php
     })->add($authMiddleware);
 };
+

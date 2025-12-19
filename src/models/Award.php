@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property \Illuminate\Support\Carbon $voting_end
  * @property string $status
  * @property bool $is_featured
+ * @property float $admin_share_percent
  * @property string $country
  * @property string $region
  * @property string $city
@@ -94,6 +95,7 @@ class Award extends Model
         'status',
         'show_results',
         'is_featured',
+        'admin_share_percent',
         'country',
         'region',
         'city',
@@ -117,6 +119,7 @@ class Award extends Model
         'is_featured' => 'boolean',
         'show_results' => 'boolean',
         'views' => 'integer',
+        'admin_share_percent' => 'decimal:2',
     ];
 
     /* -----------------------------------------------------------------
@@ -449,4 +452,67 @@ class Award extends Model
         
         return $updatedCount;
     }
+
+    /* -----------------------------------------------------------------
+     |  Revenue Share Methods
+     | -----------------------------------------------------------------
+     */
+
+    /**
+     * Get admin share percentage for this award
+     */
+    public function getAdminSharePercent(): float
+    {
+        return (float) ($this->admin_share_percent ?? PlatformSetting::getDefaultAwardAdminShare());
+    }
+
+    /**
+     * Get organizer share percentage (100 - admin share)
+     */
+    public function getOrganizerSharePercent(): float
+    {
+        return 100 - $this->getAdminSharePercent();
+    }
+
+    /**
+     * Calculate revenue split for an amount
+     * 
+     * @param float $grossAmount The total vote purchase amount
+     * @return array Contains admin_amount, organizer_amount, payment_fee
+     */
+    public function calculateRevenueSplit(float $grossAmount): array
+    {
+        $adminSharePercent = $this->getAdminSharePercent();
+        $organizerSharePercent = 100 - $adminSharePercent;
+        $paystackFeePercent = PlatformSetting::getPaystackFeePercent();
+
+        $organizerAmount = $grossAmount * ($organizerSharePercent / 100);
+        $adminGross = $grossAmount * ($adminSharePercent / 100);
+        $paymentFee = $grossAmount * ($paystackFeePercent / 100);
+        $adminAmount = $adminGross - $paymentFee; // Admin absorbs payment fee
+
+        return [
+            'admin_share_percent' => $adminSharePercent,
+            'organizer_amount' => round($organizerAmount, 2),
+            'admin_amount' => round(max(0, $adminAmount), 2), // Ensure non-negative
+            'payment_fee' => round($paymentFee, 2),
+        ];
+    }
+
+    /**
+     * Get payout requests for this award
+     */
+    public function payoutRequests()
+    {
+        return $this->hasMany(PayoutRequest::class, 'award_id');
+    }
+
+    /**
+     * Get transactions for this award
+     */
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class, 'award_id');
+    }
 }
+

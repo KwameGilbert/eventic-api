@@ -18,9 +18,9 @@ return function (App $app): void {
         // Query Params: ?include_stats=true|false
         $group->get('/nominees/award-categories/{categoryId}', [$nomineeController, 'index']);
 
-        // List all nominees for an event
+        // List all nominees for an award
         // Query Params: ?include_stats=true|false
-        $group->get('/nominees/events/{eventId}', [$nomineeController, 'getByEvent']);
+        $group->get('/nominees/awards/{awardId}', [$nomineeController, 'getByAward']);
 
         // Get single nominee details
         // Query Params: ?include_stats=true|false

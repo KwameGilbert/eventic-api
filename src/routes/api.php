@@ -8,6 +8,7 @@ return function ($app): void {
     $routeMap = [
         '/v1/users' => ROUTE . 'v1/UserRoute.php',
         '/v1/auth' => ROUTE . 'v1/AuthRoute.php',
+        '/v1/organizers/finance' => ROUTE . 'v1/PayoutRoute.php', // Payout routes for organizers
         '/v1/organizers' => ROUTE . 'v1/OrganizerRoute.php',
         '/v1/attendees' => ROUTE . 'v1/AttendeeRoute.php',
         '/v1/events' => ROUTE . 'v1/EventRoute.php',
@@ -21,6 +22,7 @@ return function ($app): void {
         '/v1/award-categories' => ROUTE . 'v1/AwardCategoryRoute.php',
         '/v1/nominees' => ROUTE . 'v1/AwardNomineeRoute.php',
         '/v1/votes' => ROUTE . 'v1/AwardVoteRoute.php',
+        '/v1/admin/payouts' => ROUTE . 'v1/PayoutRoute.php', // Payout routes for admins
         '/v1/admin' => ROUTE . 'v1/AdminRoute.php',
         // Add more routes as needed
     ];

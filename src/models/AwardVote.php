@@ -17,6 +17,12 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $category_id
  * @property int $award_id
  * @property int $number_of_votes
+ * @property float $cost_per_vote
+ * @property float $gross_amount
+ * @property float $admin_share_percent
+ * @property float $admin_amount
+ * @property float $organizer_amount
+ * @property float $payment_fee
  * @property string $status
  * @property string $reference
  * @property string|null $voter_name
@@ -37,6 +43,12 @@ class AwardVote extends Model
         'category_id',
         'award_id',
         'number_of_votes',
+        'cost_per_vote',
+        'gross_amount',
+        'admin_share_percent',
+        'admin_amount',
+        'organizer_amount',
+        'payment_fee',
         'status',
         'reference',
         'voter_name',
@@ -49,6 +61,12 @@ class AwardVote extends Model
         'category_id' => 'integer',
         'award_id' => 'integer',
         'number_of_votes' => 'integer',
+        'cost_per_vote' => 'decimal:2',
+        'gross_amount' => 'decimal:2',
+        'admin_share_percent' => 'decimal:2',
+        'admin_amount' => 'decimal:2',
+        'organizer_amount' => 'decimal:2',
+        'payment_fee' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -14,9 +14,9 @@ return function (App $app): void {
 
     // Public routes (no auth required)
     $app->group('/v1', function ($group) use ($categoryController) {
-        // List categories for an event
+        // List categories for an award
         // Query Params: ?include_results=true|false
-        $group->get('/award-categories/events/{eventId}', [$categoryController, 'index']);
+        $group->get('/award-categories/awards/{awardId}', [$categoryController, 'index']);
 
         // Get single category details
         // Query Params: ?include_results=true|false
@@ -28,11 +28,8 @@ return function (App $app): void {
 
     // Protected routes (auth required - organizer/admin only)
     $app->group('/v1', function ($group) use ($categoryController) {
-        // Create new category for Awards (new endpoint)
+        // Create new category for Awards
         $group->post('/awards/{awardId}/award-categories', [$categoryController, 'create']);
-        
-        // Create new category for Events (backward compatibility)
-        $group->post('/award-categories/events/{eventId}', [$categoryController, 'create']);
 
         // Update category
         $group->put('/award-categories/{id}', [$categoryController, 'update']);
@@ -41,6 +38,7 @@ return function (App $app): void {
         $group->delete('/award-categories/{id}', [$categoryController, 'delete']);
 
         // Reorder categories
-        $group->post('/award-categories/events/{eventId}/reorder', [$categoryController, 'reorder']);
+        $group->post('/awards/{awardId}/award-categories/reorder', [$categoryController, 'reorder']);
     })->add($authMiddleware);
 };
+

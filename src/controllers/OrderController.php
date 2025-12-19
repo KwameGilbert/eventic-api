@@ -9,6 +9,9 @@ use App\Models\OrderItem;
 use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\User;
+use App\Models\Event;
+use App\Models\Transaction;
+use App\Models\OrganizerBalance;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -82,12 +85,25 @@ class OrderController
                 $itemTotal = $ticketType->price * $item['quantity'];
                 $totalAmount += $itemTotal;
 
+                // Get event for revenue share calculation
+                $event = Event::find($ticketType->event_id);
+                $revenueSplit = $event ? $event->calculateRevenueSplit($itemTotal) : [
+                    'admin_share_percent' => 10,
+                    'organizer_amount' => $itemTotal * 0.9,
+                    'admin_amount' => $itemTotal * 0.1 - ($itemTotal * 0.015),
+                    'payment_fee' => $itemTotal * 0.015,
+                ];
+
                 $orderItemsData[] = [
                     'event_id' => $ticketType->event_id,
                     'ticket_type_id' => $ticketType->id,
                     'quantity' => $item['quantity'],
                     'unit_price' => $ticketType->price,
                     'total_price' => $itemTotal,
+                    'admin_share_percent' => $revenueSplit['admin_share_percent'],
+                    'admin_amount' => $revenueSplit['admin_amount'],
+                    'organizer_amount' => $revenueSplit['organizer_amount'],
+                    'payment_fee' => $revenueSplit['payment_fee'],
                 ];
             }
 
@@ -407,10 +423,11 @@ class OrderController
                 'paid_at' => \Illuminate\Support\Carbon::now(),
             ]);
 
-            // Generate Tickets
-            $orderItems = $order->items;
+            // Generate Tickets and create transactions
+            $orderItems = $order->items()->with('event.organizer')->get();
 
             foreach ($orderItems as $item) {
+                // Generate tickets
                 for ($i = 0; $i < $item->quantity; $i++) {
                     Ticket::create([
                         'order_id' => $order->id,
@@ -418,8 +435,31 @@ class OrderController
                         'ticket_type_id' => $item->ticket_type_id,
                         'ticket_code' => Ticket::generateUniqueCode(),
                         'status' => Ticket::STATUS_ACTIVE,
-                        'attendee_id' => null, // Can be assigned later
+                        'attendee_id' => null,
                     ]);
+                }
+
+                // Create transaction record for this order item
+                $event = $item->event;
+                if ($event && $event->organizer) {
+                    $organizerId = $event->organizer->id;
+
+                    // Create transaction
+                    Transaction::createTicketSale(
+                        $organizerId,
+                        $item->event_id,
+                        $order->id,
+                        $item->id,
+                        (float) $item->total_price,
+                        (float) $item->admin_amount,
+                        (float) $item->organizer_amount,
+                        (float) $item->payment_fee,
+                        "Ticket sale: {$event->title}"
+                    );
+
+                    // Update organizer balance (add to pending)
+                    $balance = OrganizerBalance::getOrCreate($organizerId);
+                    $balance->addPendingEarnings((float) $item->organizer_amount);
                 }
             }
 

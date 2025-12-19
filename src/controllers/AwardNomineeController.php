@@ -7,7 +7,7 @@ namespace App\Controllers;
 use App\Helper\ResponseHelper;
 use App\Models\AwardNominee;
 use App\Models\AwardCategory;
-use App\Models\Event;
+use App\Models\Award;
 use App\Models\Organizer;
 use App\Services\UploadService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -53,7 +53,7 @@ class AwardNomineeController
                     return [
                         'id' => $nominee->id,
                         'category_id' => $nominee->category_id,
-                        'event_id' => $nominee->event_id,
+                        'award_id' => $nominee->award_id,
                         'name' => $nominee->name,
                         'description' => $nominee->description,
                         'image' => $nominee->image,
@@ -71,25 +71,25 @@ class AwardNomineeController
     }
 
     /**
-     * Get all nominees for an event
-     * GET /v1/events/{eventId}/nominees
+     * Get all nominees for an award
+     * GET /v1/awards/{awardId}/nominees
      */
-    public function getByEvent(Request $request, Response $response, array $args): Response
+    public function getByAward(Request $request, Response $response, array $args): Response
     {
         try {
-            $eventId = $args['eventId'];
+            $awardId = $args['awardId'] ?? $args['eventId']; // Support both for backward compatibility
             $queryParams = $request->getQueryParams();
             $includeStats = isset($queryParams['include_stats']) && $queryParams['include_stats'] === 'true';
 
-            // Verify event exists
-            $event = Event::find($eventId);
-            if (!$event) {
-                return ResponseHelper::error($response, 'Event not found', 404);
+            // Verify award exists
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
             }
 
             // Get nominees with category info
             $nominees = AwardNominee::with('category')
-                ->where('event_id', $eventId)
+                ->where('award_id', $awardId)
                 ->ordered()
                 ->get();
 
@@ -105,7 +105,7 @@ class AwardNomineeController
                         'id' => $nominee->id,
                         'category_id' => $nominee->category_id,
                         'category_name' => $nominee->category ? $nominee->category->name : null,
-                        'event_id' => $nominee->event_id,
+                        'award_id' => $nominee->award_id,
                         'name' => $nominee->name,
                         'description' => $nominee->description,
                         'image' => $nominee->image,
@@ -114,9 +114,9 @@ class AwardNomineeController
                 });
             }
 
-            return ResponseHelper::success($response, 'Event nominees fetched successfully', $nomineesData->toArray());
+            return ResponseHelper::success($response, 'Award nominees fetched successfully', $nomineesData->toArray());
         } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to fetch event nominees', 500, $e->getMessage());
+            return ResponseHelper::error($response, 'Failed to fetch award nominees', 500, $e->getMessage());
         }
     }
 
@@ -131,7 +131,7 @@ class AwardNomineeController
             $queryParams = $request->getQueryParams();
             $includeStats = isset($queryParams['include_stats']) && $queryParams['include_stats'] === 'true';
 
-            $nominee = AwardNominee::with(['category', 'event'])->find($id);
+            $nominee = AwardNominee::with(['category', 'award'])->find($id);
 
             if (!$nominee) {
                 return ResponseHelper::error($response, 'Nominee not found', 404);
@@ -143,8 +143,8 @@ class AwardNomineeController
                     'id' => $nominee->id,
                     'category_id' => $nominee->category_id,
                     'category_name' => $nominee->category ? $nominee->category->name : null,
-                    'event_id' => $nominee->event_id,
-                    'event_name' => $nominee->event ? $nominee->event->title : null,
+                    'award_id' => $nominee->award_id,
+                    'award_name' => $nominee->award ? $nominee->award->title : null,
                     'name' => $nominee->name,
                     'description' => $nominee->description,
                     'image' => $nominee->image,
@@ -358,7 +358,7 @@ public function create(Request $request, Response $response, array $args): Respo
             $user = $request->getAttribute('user');
 
             // Verify category exists
-            $category = AwardCategory::with('event')->find($categoryId);
+            $category = AwardCategory::with('award')->find($categoryId);
             if (!$category) {
                 return ResponseHelper::error($response, 'Category not found', 404);
             }
@@ -366,7 +366,7 @@ public function create(Request $request, Response $response, array $args): Respo
             // Authorization
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || !$category->event || $organizer->id !== $category->event->organizer_id) {
+                if (!$organizer || !$category->award || $organizer->id !== $category->award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized', 403);
                 }
             }

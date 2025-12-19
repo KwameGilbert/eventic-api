@@ -23,28 +23,24 @@ class AwardCategoryController
         $this->uploadService = new UploadService();
     }
     /**
-     * Get all categories for an event
-     * GET /v1/events/{eventId}/award-categories
+     * Get all categories for an award
+     * GET /v1/awards/{awardId}/award-categories
      */
     public function index(Request $request, Response $response, array $args): Response
     {
         try {
-            $eventId = $args['eventId'];
+            $awardId = $args['awardId'] ?? $args['eventId']; // Support both for backward compatibility
             $queryParams = $request->getQueryParams();
             $includeResults = isset($queryParams['include_results']) && $queryParams['include_results'] === 'true';
 
-            // Verify event exists and is an awards event
-            $event = Event::find($eventId);
-            if (!$event) {
-                return ResponseHelper::error($response, 'Event not found', 404);
-            }
-
-            if (!$event->isAwardsEvent()) {
-                return ResponseHelper::error($response, 'This endpoint is only for awards events', 400);
+            // Verify award exists
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
             }
 
             // Get categories ordered by display_order
-            $categories = AwardCategory::where('event_id', $eventId)
+            $categories = AwardCategory::where('award_id', $awardId)
                 ->ordered()
                 ->get();
 
@@ -56,6 +52,7 @@ class AwardCategoryController
                 $categoriesData = $categories->map(function ($category) {
                     return [
                         'id' => $category->id,
+                        'award_id' => $category->award_id,
                         'name' => $category->name,
                         'image' => $category->image,
                         'description' => $category->description,
@@ -86,7 +83,7 @@ class AwardCategoryController
             $queryParams = $request->getQueryParams();
             $includeResults = isset($queryParams['include_results']) && $queryParams['include_results'] === 'true';
 
-            $category = AwardCategory::with(['event', 'nominees'])->find($id);
+            $category = AwardCategory::with(['award', 'nominees'])->find($id);
 
             if (!$category) {
                 return ResponseHelper::error($response, 'Award category not found', 404);
@@ -96,7 +93,7 @@ class AwardCategoryController
                 ? $category->getDetailsWithResults()
                 : [
                     'id' => $category->id,
-                    'event_id' => $category->event_id,
+                    'award_id' => $category->award_id,
                     'name' => $category->name,
                     'image' => $category->image,
                     'description' => $category->description,
@@ -222,8 +219,8 @@ public function create(Request $request, Response $response, array $args): Respo
                 return ResponseHelper::error($response, 'Invalid status. Must be active or deactivated', 400);
             }
 
-            // Don't allow changing event_id
-            unset($data['event_id']);
+            // Don't allow changing award_id
+            unset($data['award_id']);
 
             // Handle image upload using UploadService
             $uploadedFiles = $request->getUploadedFiles();
@@ -323,25 +320,25 @@ public function create(Request $request, Response $response, array $args): Respo
 
     /**
      * Reorder categories
-     * POST /v1/events/{eventId}/award-categories/reorder
+     * POST /v1/awards/{awardId}/award-categories/reorder
      */
     public function reorder(Request $request, Response $response, array $args): Response
     {
         try {
-            $eventId = $args['eventId'];
+            $awardId = $args['awardId'] ?? $args['eventId']; // Support both for backward compatibility
             $data = $request->getParsedBody();
             $user = $request->getAttribute('user');
 
-            // Verify event exists
-            $event = Event::find($eventId);
-            if (!$event) {
-                return ResponseHelper::error($response, 'Event not found', 404);
+            // Verify award exists
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
             }
 
             // Authorization
             if ($user->role !== 'admin') {
                 $organizer = Organizer::where('user_id', $user->id)->first();
-                if (!$organizer || $organizer->id !== $event->organizer_id) {
+                if (!$organizer || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized', 403);
                 }
             }
@@ -354,11 +351,11 @@ public function create(Request $request, Response $response, array $args): Respo
             // Update display_order for each category
             foreach ($data['order'] as $index => $categoryId) {
                 AwardCategory::where('id', $categoryId)
-                    ->where('event_id', $eventId)
+                    ->where('award_id', $awardId)
                     ->update(['display_order' => $index]);
             }
 
-            $categories = AwardCategory::where('event_id', $eventId)
+            $categories = AwardCategory::where('award_id', $awardId)
                 ->ordered()
                 ->get();
 

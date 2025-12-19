@@ -27,6 +27,7 @@ use App\Models\EventReview;
  * @property \Illuminate\Support\Carbon $end_time
  * @property string $status
  * @property bool $is_featured
+ * @property float $admin_share_percent
  * @property string|null $audience
  * @property string|null $language
  * @property array|null $tags
@@ -98,6 +99,7 @@ class Event extends Model
         'end_time',
         'status',
         'is_featured',
+        'admin_share_percent',
         'audience',
         'language',
         'tags',
@@ -124,6 +126,7 @@ class Event extends Model
         'end_time' => 'datetime',
         'tags' => 'array',
         'is_featured' => 'boolean',
+        'admin_share_percent' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -351,4 +354,67 @@ class Event extends Model
             'status' => $this->status,
         ];
     }
+
+    /* -----------------------------------------------------------------
+     |  Revenue Share Methods
+     | -----------------------------------------------------------------
+     */
+
+    /**
+     * Get admin share percentage for this event
+     */
+    public function getAdminSharePercent(): float
+    {
+        return (float) ($this->admin_share_percent ?? PlatformSetting::getDefaultEventAdminShare());
+    }
+
+    /**
+     * Get organizer share percentage (100 - admin share)
+     */
+    public function getOrganizerSharePercent(): float
+    {
+        return 100 - $this->getAdminSharePercent();
+    }
+
+    /**
+     * Calculate revenue split for an amount
+     * 
+     * @param float $grossAmount The total sale amount
+     * @return array Contains admin_amount, organizer_amount, payment_fee
+     */
+    public function calculateRevenueSplit(float $grossAmount): array
+    {
+        $adminSharePercent = $this->getAdminSharePercent();
+        $organizerSharePercent = 100 - $adminSharePercent;
+        $paystackFeePercent = PlatformSetting::getPaystackFeePercent();
+
+        $organizerAmount = $grossAmount * ($organizerSharePercent / 100);
+        $adminGross = $grossAmount * ($adminSharePercent / 100);
+        $paymentFee = $grossAmount * ($paystackFeePercent / 100);
+        $adminAmount = $adminGross - $paymentFee; // Admin absorbs payment fee
+
+        return [
+            'admin_share_percent' => $adminSharePercent,
+            'organizer_amount' => round($organizerAmount, 2),
+            'admin_amount' => round(max(0, $adminAmount), 2), // Ensure non-negative
+            'payment_fee' => round($paymentFee, 2),
+        ];
+    }
+
+    /**
+     * Get payout requests for this event
+     */
+    public function payoutRequests()
+    {
+        return $this->hasMany(PayoutRequest::class, 'event_id');
+    }
+
+    /**
+     * Get transactions for this event
+     */
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class, 'event_id');
+    }
 }
+

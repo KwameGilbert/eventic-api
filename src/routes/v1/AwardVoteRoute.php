@@ -37,11 +37,12 @@ return function (App $app): void {
 
     // Protected routes (auth required - organizer/admin only)
     $app->group('/v1', function ($group) use ($voteController) {
-        // Get all votes for an event (organizer only)
+        // Get all votes for an award (organizer only)
         // Query Params: ?status=pending|paid
-        $group->get('/votes/events/{eventId}', [$voteController, 'getByEvent']);
+        $group->get('/votes/awards/{awardId}', [$voteController, 'getByAward']);
 
-        // Get comprehensive event vote statistics (organizer only)
-        $group->get('/votes/events/{eventId}/stats', [$voteController, 'getEventStats']);
+        // Get comprehensive award vote statistics (organizer only)
+        $group->get('/votes/awards/{awardId}/stats', [$voteController, 'getAwardStats']);
     })->add($authMiddleware);
 };
+
