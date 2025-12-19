@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Dec 13, 2025 at 09:05 PM
+-- Generation Time: Dec 19, 2025 at 12:48 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -64,13 +64,74 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `awards`
+--
+
+DROP TABLE IF EXISTS `awards`;
+CREATE TABLE IF NOT EXISTS `awards` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `organizer_id` int(11) UNSIGNED NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `slug` varchar(255) NOT NULL,
+  `description` text DEFAULT NULL,
+  `banner_image` varchar(255) DEFAULT NULL,
+  `venue_name` varchar(255) DEFAULT NULL,
+  `address` varchar(255) DEFAULT NULL,
+  `map_url` varchar(255) DEFAULT NULL,
+  `ceremony_date` datetime NOT NULL COMMENT 'Awards ceremony date',
+  `voting_start` datetime NOT NULL COMMENT 'Global voting start',
+  `voting_end` datetime NOT NULL COMMENT 'Global voting end',
+  `status` enum('draft','completed','pending','published','cancelled') DEFAULT 'draft',
+  `show_results` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Whether to show voting results publicly',
+  `is_featured` tinyint(1) NOT NULL DEFAULT 0,
+  `country` varchar(255) NOT NULL DEFAULT 'Ghana',
+  `region` varchar(255) NOT NULL DEFAULT 'Greater Accra',
+  `city` varchar(255) NOT NULL DEFAULT 'Accra',
+  `phone` varchar(50) DEFAULT NULL,
+  `website` varchar(255) DEFAULT NULL,
+  `facebook` varchar(255) DEFAULT NULL,
+  `twitter` varchar(255) DEFAULT NULL,
+  `instagram` varchar(255) DEFAULT NULL,
+  `video_url` varchar(255) DEFAULT NULL,
+  `views` int(11) DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `slug` (`slug`),
+  KEY `organizer_id` (`organizer_id`),
+  KEY `status` (`status`),
+  KEY `is_featured` (`is_featured`),
+  KEY `voting_start` (`voting_start`),
+  KEY `voting_end` (`voting_end`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `awards_images`
+--
+
+DROP TABLE IF EXISTS `awards_images`;
+CREATE TABLE IF NOT EXISTS `awards_images` (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `award_id` int(11) UNSIGNED NOT NULL,
+  `image_path` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `award_id` (`award_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `award_categories`
 --
 
 DROP TABLE IF EXISTS `award_categories`;
 CREATE TABLE IF NOT EXISTS `award_categories` (
   `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `event_id` int(11) UNSIGNED NOT NULL,
+  `award_id` int(11) UNSIGNED NOT NULL,
   `name` varchar(255) NOT NULL,
   `image` text DEFAULT NULL,
   `description` text DEFAULT NULL,
@@ -82,7 +143,7 @@ CREATE TABLE IF NOT EXISTS `award_categories` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
-  KEY `event_id` (`event_id`)
+  KEY `award_id` (`award_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -95,7 +156,7 @@ DROP TABLE IF EXISTS `award_nominees`;
 CREATE TABLE IF NOT EXISTS `award_nominees` (
   `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `category_id` int(11) UNSIGNED NOT NULL,
-  `event_id` int(11) UNSIGNED NOT NULL,
+  `award_id` int(11) UNSIGNED NOT NULL,
   `name` varchar(255) NOT NULL,
   `description` text DEFAULT NULL,
   `image` varchar(255) DEFAULT NULL,
@@ -104,7 +165,7 @@ CREATE TABLE IF NOT EXISTS `award_nominees` (
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `category_id` (`category_id`),
-  KEY `event_id` (`event_id`)
+  KEY `award_id` (`award_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -118,7 +179,7 @@ CREATE TABLE IF NOT EXISTS `award_votes` (
   `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `nominee_id` int(11) UNSIGNED NOT NULL,
   `category_id` int(11) UNSIGNED NOT NULL,
-  `event_id` int(11) UNSIGNED NOT NULL,
+  `award_id` int(11) UNSIGNED NOT NULL,
   `number_of_votes` int(11) UNSIGNED NOT NULL,
   `status` enum('pending','paid') NOT NULL DEFAULT 'pending',
   `reference` text NOT NULL,
@@ -130,7 +191,7 @@ CREATE TABLE IF NOT EXISTS `award_votes` (
   PRIMARY KEY (`id`),
   KEY `nominee_id` (`nominee_id`),
   KEY `category_id` (`category_id`),
-  KEY `event_id` (`event_id`)
+  KEY `award_id` (`award_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -147,14 +208,13 @@ CREATE TABLE IF NOT EXISTS `events` (
   `slug` varchar(255) NOT NULL,
   `description` text DEFAULT NULL,
   `event_type_id` int(11) UNSIGNED DEFAULT NULL,
-  `event_format` enum('ticketing','awards') NOT NULL DEFAULT 'ticketing',
   `venue_name` varchar(255) DEFAULT NULL,
   `address` varchar(255) DEFAULT NULL,
   `map_url` varchar(255) DEFAULT NULL,
   `banner_image` varchar(255) DEFAULT NULL,
   `start_time` datetime NOT NULL,
   `end_time` datetime NOT NULL,
-  `status` enum('draft','pending','published','cancelled','completed') NOT NULL DEFAULT 'draft',
+  `status` enum('draft','completed','pending','published','cancelled') DEFAULT 'draft',
   `is_featured` tinyint(1) NOT NULL DEFAULT 0,
   `audience` varchar(255) DEFAULT NULL,
   `language` varchar(255) DEFAULT NULL,
@@ -540,17 +600,29 @@ ALTER TABLE `audit_logs`
   ADD CONSTRAINT `audit_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 --
+-- Constraints for table `awards`
+--
+ALTER TABLE `awards`
+  ADD CONSTRAINT `awards_ibfk_1` FOREIGN KEY (`organizer_id`) REFERENCES `organizers` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `awards_images`
+--
+ALTER TABLE `awards_images`
+  ADD CONSTRAINT `awards_images_ibfk_1` FOREIGN KEY (`award_id`) REFERENCES `awards` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
 -- Constraints for table `award_categories`
 --
 ALTER TABLE `award_categories`
-  ADD CONSTRAINT `award_categories_ibfk_1` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+  ADD CONSTRAINT `award_categories_ibfk_2` FOREIGN KEY (`award_id`) REFERENCES `awards` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
 -- Constraints for table `award_nominees`
 --
 ALTER TABLE `award_nominees`
   ADD CONSTRAINT `award_nominees_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `award_categories` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  ADD CONSTRAINT `award_nominees_ibfk_2` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+  ADD CONSTRAINT `award_nominees_ibfk_3` FOREIGN KEY (`award_id`) REFERENCES `awards` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
 -- Constraints for table `award_votes`
@@ -558,7 +630,7 @@ ALTER TABLE `award_nominees`
 ALTER TABLE `award_votes`
   ADD CONSTRAINT `award_votes_ibfk_1` FOREIGN KEY (`nominee_id`) REFERENCES `award_nominees` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `award_votes_ibfk_2` FOREIGN KEY (`category_id`) REFERENCES `award_categories` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  ADD CONSTRAINT `award_votes_ibfk_3` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+  ADD CONSTRAINT `award_votes_ibfk_4` FOREIGN KEY (`award_id`) REFERENCES `awards` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
 -- Constraints for table `events`

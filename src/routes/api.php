@@ -21,11 +21,7 @@ return function ($app): void {
         '/v1/award-categories' => ROUTE . 'v1/AwardCategoryRoute.php',
         '/v1/nominees' => ROUTE . 'v1/AwardNomineeRoute.php',
         '/v1/votes' => ROUTE . 'v1/AwardVoteRoute.php',
-        // '/v1/hotels' => ROUTE . 'v1/HotelRoute.php',
-        // '/v1/rooms' => ROUTE . 'v1/RoomRoute.php',
-        // '/v1/customers' => ROUTE . 'v1/CustomerRoute.php',
-        // '/v1/bookings' => ROUTE . 'v1/BookingRoute.php',
-        // '/v1/payments' => ROUTE . 'v1/PaymentRoute.php',
+        '/v1/admin' => ROUTE . 'v1/AdminRoute.php',
         // Add more routes as needed
     ];
 

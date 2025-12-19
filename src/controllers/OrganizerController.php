@@ -1529,5 +1529,452 @@ class OrganizerController
             return ResponseHelper::error($response, 'Failed to fetch award details', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Get financial overview for organizer
+     * GET /v1/organizers/finance/overview
+     */
+    public function getFinanceOverview(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $now = Carbon::now();
+
+            // Get all events and awards
+            $events = Event::where('organizer_id', $organizer->id)->get();
+            $eventIds = $events->pluck('id')->toArray();
+            $awards = Award::where('organizer_id', $organizer->id)->get();
+            $awardIds = $awards->pluck('id')->toArray();
+
+            // === EVENTS REVENUE ===
+            $eventsRevenue = $this->calculateEventsRevenue($eventIds);
+
+            // === AWARDS REVENUE ===
+            $awardsRevenue = $this->calculateAwardsRevenue($awardIds);
+
+            // === SUMMARY CALCULATIONS ===
+            $totalGrossRevenue = $eventsRevenue['total_gross'] + $awardsRevenue['total_gross'];
+            $totalPlatformFees = $eventsRevenue['total_fees'] + $awardsRevenue['total_fees'];
+            $totalNetRevenue = $eventsRevenue['total_net'] + $awardsRevenue['total_net'];
+
+            // Calculate available balance (events/awards completed > 7 days ago)
+            $availableBalance = $this->calculateAvailableBalance($organizer->id);
+
+            // Get completed payouts (would come from payouts table - placeholder for now)
+            $completedPayouts = 0; // TODO: Sum from payouts table when implemented
+
+            // Calculate pending balance
+            $pendingBalance = $totalNetRevenue - $availableBalance - $completedPayouts;
+
+            // === MONTHLY TREND (Last 12 months) ===
+            $monthlyTrend = $this->getMonthlyRevenueTrend($organizer->id);
+
+            // === TOP PERFORMERS ===
+            $topEvent = $events->sortByDesc(function ($event) {
+                return OrderItem::where('event_id', $event->id)
+                    ->where('status', 'paid')
+                    ->sum('total_price');
+            })->first();
+
+            $topAward = $awards->sortByDesc(function ($award) {
+                return AwardVote::where('event_id', $award->id)
+                    ->where('status', 'paid')
+                    ->sum('number_of_votes');
+            })->first();
+
+            $topEventRevenue = $topEvent ? OrderItem::where('event_id', $topEvent->id)
+                ->where('status', 'paid')
+                ->sum('total_price') : 0;
+
+            $topAwardVotes = $topAward ? AwardVote::where('event_id', $topAward->id)
+                ->where('status', 'paid')
+                ->sum('number_of_votes') : 0;
+
+            $data = [
+                'summary' => [
+                    'total_gross_revenue' => round($totalGrossRevenue, 2),
+                    'total_platform_fees' => round($totalPlatformFees, 2),
+                    'total_net_revenue' => round($totalNetRevenue, 2),
+                    'available_balance' => round($availableBalance, 2),
+                    'pending_balance' => round($pendingBalance, 2),
+                    'completed_payouts' => round($completedPayouts, 2),
+                    'lifetime_earnings' => round($totalNetRevenue, 2),
+                ],
+                'revenue_breakdown' => [
+                    'events_revenue' => [
+                        'gross' => round($eventsRevenue['total_gross'], 2),
+                        'fees' => round($eventsRevenue['total_fees'], 2),
+                        'net' => round($eventsRevenue['total_net'], 2),
+                        'percentage' => $totalGrossRevenue > 0 ? round(($eventsRevenue['total_gross'] / $totalGrossRevenue) * 100, 1) : 0,
+                    ],
+                    'awards_revenue' => [
+                        'gross' => round($awardsRevenue['total_gross'], 2),
+                        'fees' => round($awardsRevenue['total_fees'], 2),
+                        'net' => round($awardsRevenue['total_net'], 2),
+                        'percentage' => $totalGrossRevenue > 0 ? round(($awardsRevenue['total_gross'] / $totalGrossRevenue) * 100, 1) : 0,
+                    ],
+                ],
+                'monthly_trend' => $monthlyTrend,
+                'top_performers' => [
+                    'top_event' => $topEvent ? [
+                        'id' => $topEvent->id,
+                        'name' => $topEvent->title,
+                        'revenue' => round($topEventRevenue, 2),
+                    ] : null,
+                    'top_award' => $topAward ? [
+                        'id' => $topAward->id,
+                        'name' => $topAward->title,
+                        'votes' => $topAwardVotes,
+                        'revenue' => round($topAwardVotes * 5, 2), // Assuming $5 per vote average
+                    ] : null,
+                ],
+            ];
+
+            return ResponseHelper::success($response, 'Financial overview fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch financial overview', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get events revenue details
+     * GET /v1/organizers/finance/events
+     */
+    public function getEventsRevenue(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $events = Event::where('organizer_id', $organizer->id)
+                ->with(['ticketTypes'])
+                ->orderBy('start_time', 'desc')
+                ->get();
+
+            $eventsData = [];
+            $totals = ['total_gross' => 0, 'total_fees' => 0, 'total_net' => 0];
+
+            foreach ($events as $event) {
+                // Get order items for paid orders only
+                $orderItems = OrderItem::where('event_id', $event->id)
+                    ->whereHas('order', function ($query) {
+                        $query->where('status', 'paid');
+                    })
+                    ->with('order')
+                    ->get();
+
+                $orders = Order::whereIn('id', $orderItems->pluck('order_id')->unique())
+                    ->where('status', 'paid')
+                    ->get();
+
+                $ticketsSold = Ticket::where('event_id', $event->id)->count();
+                $grossRevenue = $orderItems->sum('total_price');
+                $platformFee = $grossRevenue * 0.015; // 1.5%
+                $netRevenue = $grossRevenue - $platformFee;
+
+                $eventsData[] = [
+                    'event_id' => $event->id,
+                    'event_name' => $event->title,
+                    'event_slug' => $event->slug,
+                    'event_date' => $event->start_time ? $event->start_time->toDateString() : null,
+                    'status' => $event->status,
+                    'total_orders' => $orders->count(),
+                    'tickets_sold' => $ticketsSold,
+                    'gross_revenue' => round($grossRevenue, 2),
+                    'platform_fee' => round($platformFee, 2),
+                    'net_revenue' => round($netRevenue, 2),
+                    'payout_status' => 'pending', // TODO: Check from payouts table
+                    'payout_id' => null,
+                    'payout_date' => null,
+                    'is_eligible_for_payout' => $this->isEligibleForPayout($event),
+                ];
+
+                $totals['total_gross'] += $grossRevenue;
+                $totals['total_fees'] += $platformFee;
+                $totals['total_net'] += $netRevenue;
+            }
+
+            $data = [
+                'events' => $eventsData,
+                'totals' => [
+                    'total_gross' => round($totals['total_gross'], 2),
+                    'total_fees' => round($totals['total_fees'], 2),
+                    'total_net' => round($totals['total_net'], 2),
+                ],
+            ];
+
+            return ResponseHelper::success($response, 'Events revenue fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch events revenue', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get awards revenue details
+     * GET /v1/organizers/finance/awards
+     */
+    public function getAwardsRevenue(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $awards = Award::where('organizer_id', $organizer->id)
+                ->with(['categories'])
+                ->orderBy('ceremony_date', 'desc')
+                ->get();
+
+            $awardsData = [];
+            $totals = ['total_votes' => 0, 'total_gross' => 0, 'total_fees' => 0, 'total_net' => 0];
+
+            foreach ($awards as $award) {
+                $votes = AwardVote::where('event_id', $award->id)
+                    ->where('status', 'paid')
+                    ->get();
+
+                $totalVotes = $votes->sum('number_of_votes');
+                
+                // Calculate revenue (cost_per_vote comes from categories)
+                $grossRevenue = 0;
+                $categoryBreakdown = [];
+                
+                foreach ($award->categories as $category) {
+                    $categoryVotes = AwardVote::where('category_id', $category->id)
+                        ->where('status', 'paid')
+                        ->sum('number_of_votes');
+                    
+                    $categoryRevenue = $categoryVotes * ($category->cost_per_vote ?? 5);
+                    $grossRevenue += $categoryRevenue;
+                    
+                    if ($categoryVotes > 0) {
+                        $categoryBreakdown[] = [
+                            'category_name' => $category->name,
+                            'votes' => $categoryVotes,
+                            'revenue' => round($categoryRevenue, 2),
+                        ];
+                    }
+                }
+
+                $platformFee = $grossRevenue * 0.05; // 5% for voting
+                $netRevenue = $grossRevenue - $platformFee;
+
+                $totalVoters = $votes->unique('voter_email')->count();
+
+                $awardsData[] = [
+                    'award_id' => $award->id,
+                    'award_title' => $award->title,
+                    'award_slug' => $award->slug,
+                    'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->toDateString() : null,
+                    'status' => $award->status,
+                    'total_votes' => $totalVotes,
+                    'total_voters' => $totalVoters,
+                    'average_cost_per_vote' => $totalVotes > 0 ? round($grossRevenue / $totalVotes, 2) : 0,
+                    'gross_revenue' => round($grossRevenue, 2),
+                    'platform_fee' => round($platformFee, 2),
+                    'net_revenue' => round($netRevenue, 2),
+                    'payout_status' => 'pending', // TODO: Check from payouts table
+                    'payout_id' => null,
+                    'payout_date' => null,
+                    'breakdown_by_category' => $categoryBreakdown,
+                    'is_eligible_for_payout' => $this->isAwardEligibleForPayout($award),
+                ];
+
+                $totals['total_votes'] += $totalVotes;
+                $totals['total_gross'] += $grossRevenue;
+                $totals['total_fees'] += $platformFee;
+                $totals['total_net'] += $netRevenue;
+            }
+
+            $data = [
+                'awards' => $awardsData,
+                'totals' => [
+                    'total_votes' => $totals['total_votes'],
+                    'total_gross' => round($totals['total_gross'], 2),
+                    'total_fees' => round($totals['total_fees'], 2),
+                    'total_net' => round($totals['total_net'], 2),
+                ],
+            ];
+
+            return ResponseHelper::success($response, 'Awards revenue fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch awards revenue', 500, $e->getMessage());
+        }
+    }
+
+    // ============================================
+    // HELPER METHODS
+    // ============================================
+
+    private function calculateEventsRevenue($eventIds): array
+    {
+        // Get order items only from paid orders
+        $orderItems = OrderItem::whereIn('event_id', $eventIds)
+            ->whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })
+            ->get();
+
+        $grossRevenue = $orderItems->sum('total_price');
+        $platformFee = $grossRevenue * 0.015; // 1.5%
+        $netRevenue = $grossRevenue - $platformFee;
+
+        return [
+            'total_gross' => $grossRevenue,
+            'total_fees' => $platformFee,
+            'total_net' => $netRevenue,
+        ];
+    }
+
+    private function calculateAwardsRevenue($awardIds): array
+    {
+        $votes = AwardVote::whereIn('event_id', $awardIds)
+            ->where('status', 'paid')
+            ->with('category')
+            ->get();
+
+        $grossRevenue = $votes->sum(function ($vote) {
+            $costPerVote = $vote->category->cost_per_vote ?? 5;
+            return $vote->number_of_votes * $costPerVote;
+        });
+
+        $platformFee = $grossRevenue * 0.05; // 5%
+        $netRevenue = $grossRevenue - $platformFee;
+
+        return [
+            'total_gross' => $grossRevenue,
+            'total_fees' => $platformFee,
+            'total_net' => $netRevenue,
+        ];
+    }
+
+    private function calculateAvailableBalance($organizerId): float
+    {
+        $sevenDaysAgo = Carbon::now()->subDays(7);
+        $balance = 0;
+
+        // Events completed > 7 days ago
+        $eligibleEvents = Event::where('organizer_id', $organizerId)
+            ->where(function ($query) use ($sevenDaysAgo) {
+                $query->where('end_time', '<', $sevenDaysAgo)
+                    ->orWhere('status', 'completed');
+            })
+            ->get();
+
+        foreach ($eligibleEvents as $event) {
+            $gross = OrderItem::where('event_id', $event->id)
+                ->where('status', 'paid')
+                ->sum('total_price');
+            $balance += $gross * 0.985; // Net after 1.5% fee
+        }
+
+        // Awards with voting ended > 7 days ago
+        $eligibleAwards = Award::where('organizer_id', $organizerId)
+            ->where(function ($query) use ($sevenDaysAgo) {
+                $query->where('voting_end', '<', $sevenDaysAgo)
+                    ->orWhere('status', 'completed');
+            })
+            ->get();
+
+        foreach ($eligibleAwards as $award) {
+            $votes = AwardVote::where('event_id', $award->id)
+                ->where('status', 'paid')
+                ->with('category')
+                ->get();
+            
+            $gross = $votes->sum(function ($vote) {
+                return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
+            });
+            $balance += $gross * 0.95; // Net after 5% fee
+        }
+
+        return $balance;
+    }
+
+    private function getMonthlyRevenueTrend($organizerId): array
+    {
+        $trend = [];
+        for ($i = 11; $i >= 0; $i--) {
+            $month = Carbon::now()->subMonths($i);
+            $monthStart = $month->copy()->startOfMonth();
+            $monthEnd = $month->copy()->endOfMonth();
+
+            // Events revenue for this month
+            $eventIds = Event::where('organizer_id', $organizerId)
+                ->whereBetween('start_time', [$monthStart, $monthEnd])
+                ->pluck('id')->toArray();
+            
+            $eventsRevenue = OrderItem::whereIn('event_id', $eventIds)
+                ->where('status', 'paid')
+                ->sum('total_price');
+
+            // Awards revenue for this month
+            $awardIds = Award::where('organizer_id', $organizerId)
+                ->whereBetween('ceremony_date', [$monthStart, $monthEnd])
+                ->pluck('id')->toArray();
+            
+            $votes = AwardVote::whereIn('event_id', $awardIds)
+                ->where('status', 'paid')
+                ->with('category')
+                ->get();
+            
+            $awardsRevenue = $votes->sum(function ($vote) {
+                return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
+            });
+
+            $trend[] = [
+                'month' => $month->format('M Y'),
+                'events' => round($eventsRevenue, 2),
+                'awards' => round($awardsRevenue, 2),
+            ];
+        }
+
+        return $trend;
+    }
+
+    private function isEligibleForPayout($event): bool
+    {
+        // Event must be completed or ended > 7 days ago
+        $sevenDaysAgo = Carbon::now()->subDays(7);
+        
+        if ($event->status === 'completed') {
+            return true;
+        }
+        
+        if ($event->end_time && $event->end_time < $sevenDaysAgo) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isAwardEligibleForPayout($award): bool
+    {
+        // Award voting must have ended > 7 days ago
+        $sevenDaysAgo = Carbon::now()->subDays(7);
+        
+        if ($award->status === 'completed') {
+            return true;
+        }
+        
+        if ($award->voting_end && $award->voting_end < $sevenDaysAgo) {
+            return true;
+        }
+
+        return false;
+    }
 }
 

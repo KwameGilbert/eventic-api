@@ -45,6 +45,15 @@ return function (App $app): void {
         // Award Details - fetch detailed data for a single award
         $group->get('/data/awards/{id}', [$organizerController, 'getAwardDetails']);
 
+        // Finance - financial overview with combined events + awards revenue
+        $group->get('/finance/overview', [$organizerController, 'getFinanceOverview']);
+        
+        // Finance - detailed events revenue
+        $group->get('/finance/events', [$organizerController, 'getEventsRevenue']);
+        
+        // Finance - detailed awards revenue
+        $group->get('/finance/awards', [$organizerController, 'getAwardsRevenue']);
+
         // CRUD operations
         $group->post('', [$organizerController, 'create']);
         $group->put('/{id}', [$organizerController, 'update']);
