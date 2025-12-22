@@ -48,6 +48,13 @@ return function (App $app): void {
         // Attendees - fetch all attendees/ticket holders for organizer's events
         $group->get('/data/attendees', [$organizerController, 'getAttendees']);
 
+        // Send bulk email to attendees
+        $group->post('/data/attendees/send-email', [$organizerController, 'sendBulkEmail']);
+
+        // Order management - resend confirmation and process refund
+        $group->post('/data/orders/{orderId}/resend-confirmation', [$organizerController, 'resendOrderConfirmation']);
+        $group->post('/data/orders/{orderId}/refund', [$organizerController, 'processOrderRefund']);
+
         // Finance - financial overview with combined events + awards revenue
         $group->get('/finance/overview', [$organizerController, 'getFinanceOverview']);
         

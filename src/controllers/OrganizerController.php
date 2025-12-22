@@ -2141,5 +2141,467 @@ class OrganizerController
             return ResponseHelper::error($response, 'Failed to fetch attendees', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Send bulk email to attendees
+     * POST /v1/organizers/data/attendees/send-email
+     */
+    public function sendBulkEmail(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $user = $request->getAttribute('user');
+            $organizer = Organizer::where('user_id', $user->id)->first();
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $data = $request->getParsedBody();
+
+            // Validate required fields
+            if (empty($data['subject'])) {
+                return ResponseHelper::error($response, 'Email subject is required', 400);
+            }
+
+            if (empty($data['message'])) {
+                return ResponseHelper::error($response, 'Email message is required', 400);
+            }
+
+            if (empty($data['attendee_ids']) || !is_array($data['attendee_ids'])) {
+                return ResponseHelper::error($response, 'Attendee IDs are required', 400);
+            }
+
+            // Get all organizer's event IDs for authorization
+            $eventIds = Event::where('organizer_id', $organizer->id)->pluck('id')->toArray();
+
+            if (empty($eventIds)) {
+                return ResponseHelper::error($response, 'No events found', 404);
+            }
+
+            // Get tickets for the specified attendees, ensuring they belong to organizer's events
+            $tickets = Ticket::whereIn('id', $data['attendee_ids'])
+                ->whereIn('event_id', $eventIds)
+                ->with(['order'])
+                ->get();
+
+            if ($tickets->isEmpty()) {
+                return ResponseHelper::error($response, 'No valid attendees found', 404);
+            }
+
+            // Initialize email service
+            $emailService = new \App\Services\EmailService();
+
+            // Collect unique email addresses (some orders might have multiple tickets)
+            $emailAddresses = [];
+            $successCount = 0;
+            $failCount = 0;
+            $errors = [];
+
+            foreach ($tickets as $ticket) {
+                $order = $ticket->order;
+                if (!$order || !$order->customer_email) {
+                    $failCount++;
+                    continue;
+                }
+
+                $customerEmail = $order->customer_email;
+                
+                // Avoid sending duplicate emails to the same address
+                if (in_array($customerEmail, $emailAddresses)) {
+                    continue;
+                }
+
+                $emailAddresses[] = $customerEmail;
+
+                // Personalize the message
+                $customerName = $order->customer_name ?? 'Valued Customer';
+                $personalizedMessage = str_replace(
+                    ['{name}', '{NAME}'],
+                    $customerName,
+                    $data['message']
+                );
+
+                // Create HTML email body
+                $htmlBody = $this->getBulkEmailTemplate(
+                    $customerName,
+                    $data['subject'],
+                    $personalizedMessage,
+                    $organizer
+                );
+
+                // Send email
+                try {
+                    $sent = $emailService->send(
+                        $customerEmail,
+                        $data['subject'],
+                        $htmlBody,
+                        $organizer->business_name ?? 'Eventic'
+                    );
+
+                    if ($sent) {
+                        $successCount++;
+                    } else {
+                        $failCount++;
+                        $errors[] = "Failed to send to {$customerEmail}";
+                    }
+                } catch (Exception $e) {
+                    $failCount++;
+                    $errors[] = "Error sending to {$customerEmail}: " . $e->getMessage();
+                }
+            }
+
+            // Return result
+            $message = "Email sent successfully to {$successCount} attendee" . ($successCount !== 1 ? 's' : '');
+            if ($failCount > 0) {
+                $message .= ". {$failCount} failed.";
+            }
+
+            return ResponseHelper::success($response, $message, [
+                'success_count' => $successCount,
+                'fail_count' => $failCount,
+                'total_attempted' => $successCount + $failCount,
+                'errors' => array_slice($errors, 0, 5), // Return first 5 errors only
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to send emails', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get HTML email template for bulk emails
+     */
+    private function getBulkEmailTemplate(string $name, string $subject, string $message, Organizer $organizer): string
+    {
+        $businessName = $organizer->business_name ?? 'Eventic';
+        $businessEmail = $organizer->email ?? getenv('MAIL_FROM_ADDRESS');
+
+        // Convert line breaks to <br> tags
+        $formattedMessage = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{$subject}</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: #ffffff; padding: 30px 20px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .content { padding: 30px 20px; }
+        .content p { margin: 0 0 15px 0; }
+        .greeting { font-size: 18px; font-weight: bold; color: #f97316; }
+        .message { background: #f9fafb; padding: 20px; border-left: 4px solid #f97316; margin: 20px 0; }
+        .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{$businessName}</h1>
+        </div>
+        <div class="content">
+            <p class="greeting">Hello {$name},</p>
+            <div class="message">
+                {$formattedMessage}
+            </div>
+            <p>If you have any questions, please don't hesitate to reach out to us.</p>
+            <p>Best regards,<br><strong>{$businessName}</strong></p>
+        </div>
+        <div class="footer">
+            <p>&copy; " . date('Y') . " {$businessName}. All rights reserved.</p>
+            <p>This email was sent to you as an attendee of one of our events.</p>
+        </div>
+    </div>
+</body>
+</html>
+HTML;
+    }
+
+    /**
+     * Resend order confirmation email
+     * POST /v1/organizers/data/orders/{orderId}/resend-confirmation
+     */
+    public function resendOrderConfirmation(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $user = $request->getAttribute('user');
+            $organizer = Organizer::where('user_id', $user->id)->first();
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $orderId = (int) $args['orderId'];
+
+            // Get order and verify it belongs to organizer's event
+            $order = Order::with(['event', 'items.ticketType'])
+                ->whereHas('event', function ($query) use ($organizer) {
+                    $query->where('organizer_id', $organizer->id);
+                })
+                ->where('id', $orderId)
+                ->first();
+
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found or does not belong to your events', 404);
+            }
+
+            // Only resend for paid orders
+            if ($order->status !== 'paid') {
+                return ResponseHelper::error($response, 'Can only resend confirmation for paid orders', 400);
+            }
+
+            // Initialize email service
+            $emailService = new \App\Services\EmailService();
+
+            // Generate order confirmation email
+            $customerName = $order->customer_name ?? 'Valued Customer';
+            $customerEmail = $order->customer_email;
+
+            if (!$customerEmail) {
+                return ResponseHelper::error($response, 'Customer email not found', 400);
+            }
+
+            // Build email content
+            $subject = "Order Confirmation - {$order->event->title}";
+            $emailBody = $this->getOrderConfirmationEmailTemplate($order, $organizer);
+
+            // Send email
+            $sent = $emailService->send($customerEmail, $subject, $emailBody, $organizer->business_name ?? 'Eventic');
+
+            if ($sent) {
+                return ResponseHelper::success($response, 'Confirmation email sent successfully', [
+                    'order_id' => $order->id,
+                    'email' => $customerEmail,
+                    'sent_at' => Carbon::now()->toIso8601String(),
+                ]);
+            } else {
+                return ResponseHelper::error($response, 'Failed to send confirmation email', 500);
+            }
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to resend confirmation', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Process order refund
+     * POST /v1/organizers/data/orders/{orderId}/refund
+     */
+    public function processOrderRefund(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $user = $request->getAttribute('user');
+            $organizer = Organizer::where('user_id', $user->id)->first();
+
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $orderId = (int) $args['orderId'];
+            $data = $request->getParsedBody();
+
+            // Get order and verify it belongs to organizer's event
+            $order = Order::with(['event', 'items'])
+                ->whereHas('event', function ($query) use ($organizer) {
+                    $query->where('organizer_id', $organizer->id);
+                })
+                ->where('id', $orderId)
+                ->first();
+
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found or does not belong to your events', 404);
+            }
+
+            // Validate order can be refunded
+            if ($order->status !== 'paid') {
+                return ResponseHelper::error($response, 'Only paid orders can be refunded', 400);
+            }
+
+            if ($order->status === 'refunded') {
+                return ResponseHelper::error($response, 'Order has already been refunded', 400);
+            }
+
+            // Validate refund amount
+            $refundAmount = isset($data['amount']) ? (float) $data['amount'] : $order->total;
+            $reason = $data['reason'] ?? 'Refund requested by organizer';
+
+            if ($refundAmount <= 0 || $refundAmount > $order->total) {
+                return ResponseHelper::error($response, 'Invalid refund amount', 400);
+            }
+
+            // In a real implementation, you would integrate with payment gateway here
+            // For now, we'll just update the order status
+            
+            // TODO: Integrate with payment gateway (Stripe, PayPal, etc.)
+            // Example:
+            // $paymentGateway = new PaymentGatewayService();
+            // $refundResult = $paymentGateway->processRefund($order->payment_intent_id, $refundAmount);
+            
+            // Update order status
+            $order->status = 'refunded';
+            $order->refunded_at = Carbon::now();
+            $order->refund_amount = $refundAmount;
+            $order->refund_reason = $reason;
+            $order->save();
+
+            // Send refund notification email
+            $emailService = new \App\Services\EmailService();
+            $customerEmail = $order->customer_email;
+
+            if ($customerEmail) {
+                $subject = "Refund Processed - Order #{$order->id}";
+                $emailBody = $this->getRefundEmailTemplate($order, $refundAmount, $reason, $organizer);
+                $emailService->send($customerEmail, $subject, $emailBody, $organizer->business_name ?? 'Eventic');
+            }
+
+            return ResponseHelper::success($response, 'Refund processed successfully', [
+                'order_id' => $order->id,
+                'refund_amount' => $refundAmount,
+                'refunded_at' => $order->refunded_at->toIso8601String(),
+                'reason' => $reason,
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to process refund', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get order confirmation email template
+     */
+    private function getOrderConfirmationEmailTemplate(Order $order, Organizer $organizer): string
+    {
+        $businessName = $organizer->business_name ?? 'Eventic';
+        $customerName = $order->customer_name ?? 'Valued Customer';
+        $eventTitle = $order->event->title ?? 'Event';
+        $eventDate = $order->event->start_time ? Carbon::parse($order->event->start_time)->format('F d, Y \a\t g:i A') : 'TBA';
+        $eventVenue = $order->event->venue_name ?? 'TBA';
+
+        // Build tickets list
+        $ticketsList = '';
+        foreach ($order->items as $item) {
+            $ticketName = $item->ticketType->name ?? 'Ticket';
+            $quantity = $item->quantity;
+            $price = number_format($item->price, 2);
+            $ticketsList .= "<li>{$quantity}x {$ticketName} - \${$price}</li>";
+        }
+
+        $totalAmount = number_format($order->total, 2);
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Confirmation</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: #ffffff; padding: 30px 20px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .content { padding: 30px 20px; }
+        .order-details { background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .order-details h2 { margin-top: 0; color: #f97316; }
+        .tickets { list-style: none; padding: 0; }
+        .tickets li { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+        .total { font-size: 18px; font-weight: bold; color: #f97316; margin-top: 15px; }
+        .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Order Confirmation</h1>
+        </div>
+        <div class="content">
+            <p>Hello {$customerName},</p>
+            <p>Thank you for your purchase! Your order has been confirmed.</p>
+            
+            <div class="order-details">
+                <h2>Order #{$order->id}</h2>
+                <p><strong>Event:</strong> {$eventTitle}</p>
+                <p><strong>Date:</strong> {$eventDate}</p>
+                <p><strong>Venue:</strong> {$eventVenue}</p>
+                
+                <h3>Tickets:</h3>
+                <ul class="tickets">
+                    {$ticketsList}
+                </ul>
+                
+                <p class="total">Total: \${$totalAmount}</p>
+            </div>
+            
+            <p>Your tickets have been sent to this email address. Please check your inbox for your ticket details.</p>
+            <p>If you have any questions, please don't hesitate to contact us.</p>
+            <p>Best regards,<br><strong>{$businessName}</strong></p>
+        </div>
+        <div class="footer">
+            <p>&copy; " . date('Y') . " {$businessName}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+HTML;
+    }
+
+    /**
+     * Get refund notification email template
+     */
+    private function getRefundEmailTemplate(Order $order, float $refundAmount, string $reason, Organizer $organizer): string
+    {
+        $businessName = $organizer->business_name ?? 'Eventic';
+        $customerName = $order->customer_name ?? 'Valued Customer';
+        $formattedAmount = number_format($refundAmount, 2);
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refund Processed</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff; padding: 30px 20px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .content { padding: 30px 20px; }
+        .refund-box { background: #eff6ff; padding: 20px; border-radius: 8px; border-left: 4px solid #3b82f6; margin: 20px 0; }
+        .amount { font-size: 24px; font-weight: bold; color: #3b82f6; }
+        .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Refund Processed</h1>
+        </div>
+        <div class="content">
+            <p>Hello {$customerName},</p>
+            <p>Your refund has been processed successfully.</p>
+            
+            <div class="refund-box">
+                <p><strong>Order ID:</strong> #{$order->id}</p>
+                <p><strong>Refund Amount:</strong></p>
+                <p class="amount">\${$formattedAmount}</p>
+                <p><strong>Reason:</strong> {$reason}</p>
+            </div>
+            
+            <p>The refund will be credited to your original payment method within 5-10 business days.</p>
+            <p>If you have any questions about this refund, please don't hesitate to contact us.</p>
+            <p>Best regards,<br><strong>{$businessName}</strong></p>
+        </div>
+        <div class="footer">
+            <p>&copy; " . date('Y') . " {$businessName}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+HTML;
+    }
 }
+
+
 
