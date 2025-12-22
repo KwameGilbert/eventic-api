@@ -44,8 +44,8 @@ class EventController
             if (isset($queryParams['status'])) {
                 $query->where('status', $queryParams['status']);
             } else {
-                // Default to published events for public endpoint
-                $query->where('status', Event::STATUS_PUBLISHED);
+                // Default to published and completed events for public endpoint
+                $query->whereIn('status', [Event::STATUS_PUBLISHED, Event::STATUS_COMPLETED]);
             }
 
             // Filter by event type
@@ -662,7 +662,7 @@ class EventController
             }
 
             $events = Event::with(['ticketTypes', 'eventType', 'organizer.user'])
-                ->where('status', Event::STATUS_PUBLISHED)
+                ->whereIn('status', [Event::STATUS_PUBLISHED, Event::STATUS_COMPLETED])
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'LIKE', "%{$query}%")
                         ->orWhere('description', 'LIKE', "%{$query}%")

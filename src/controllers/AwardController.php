@@ -60,8 +60,8 @@ class AwardController
             if (isset($queryParams['status'])) {
                 $query->where('status', $queryParams['status']);
             } else {
-                // Default to published awards for public endpoint
-                $query->where('status', Award::STATUS_PUBLISHED);
+                // Default to published and completed awards for public endpoint
+                $query->whereIn('status', [Award::STATUS_PUBLISHED, Award::STATUS_COMPLETED]);
             }
 
             // Filter by organizer
@@ -133,7 +133,7 @@ class AwardController
 
             // Build query for featured awards
             $query = Award::with(['categories.nominees', 'organizer.user', 'images'])
-                ->where('status', Award::STATUS_PUBLISHED)
+                ->whereIn('status', [Award::STATUS_PUBLISHED, Award::STATUS_COMPLETED])
                 ->where('is_featured', true);
 
             // Filter upcoming only (optional)
@@ -248,6 +248,18 @@ class AwardController
                 }
             }
 
+            // Validate date order: voting_start < voting_end < ceremony_date
+            $votingStart = new \DateTime($data['voting_start']);
+            $votingEnd = new \DateTime($data['voting_end']);
+            $ceremonyDate = new \DateTime($data['ceremony_date']);
+
+            if ($votingStart >= $votingEnd) {
+                return ResponseHelper::error($response, 'Voting start date must be before voting end date', 400);
+            }
+
+            if ($votingEnd >= $ceremonyDate) {
+                return ResponseHelper::error($response, 'Voting must end before the ceremony date', 400);
+            }
 
             // Generate slug if not provided
             if (empty($data['slug'])) {
@@ -385,6 +397,18 @@ class AwardController
                 $data['slug'] = $this->generateUniqueSlug($data['slug']);
             }
 
+            // Validate date order if any dates are being updated
+            $votingStart = isset($data['voting_start']) ? new \DateTime($data['voting_start']) : new \DateTime($award->voting_start);
+            $votingEnd = isset($data['voting_end']) ? new \DateTime($data['voting_end']) : new \DateTime($award->voting_end);
+            $ceremonyDate = isset($data['ceremony_date']) ? new \DateTime($data['ceremony_date']) : new \DateTime($award->ceremony_date);
+
+            if ($votingStart >= $votingEnd) {
+                return ResponseHelper::error($response, 'Voting start date must be before voting end date', 400);
+            }
+
+            if ($votingEnd >= $ceremonyDate) {
+                return ResponseHelper::error($response, 'Voting must end before the ceremony date', 400);
+            }
 
             // Validate status value if provided
             if (isset($data['status'])) {
@@ -506,7 +530,7 @@ class AwardController
             }
 
             $awards = Award::with(['categories.nominees', 'organizer.user'])
-                ->where('status', Award::STATUS_PUBLISHED)
+                ->whereIn('status', [Award::STATUS_PUBLISHED, Award::STATUS_COMPLETED])
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'LIKE', "%{$query}%")
                         ->orWhere('description', 'LIKE', "%{$query}%");
