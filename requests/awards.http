@@ -1,0 +1,28 @@
+###
+PUT http://localhost:8000/v1/awards/18
+Content-Type: application/json
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJldmVudGljLWFwaSIsImlhdCI6MTc2NjE2MjQwMiwiZXhwIjoxMDAwMDAwMDE3NjYxNjI0MDEsImRhdGEiOnsiaWQiOjgsImVtYWlsIjoiZ2t1a2FoMUBnbWFpbC5jb20iLCJyb2xlIjoib3JnYW5pemVyIiwic3RhdHVzIjoiYWN0aXZlIn19.RwjM_MY_Q--m68sMTjnG5Ozm9Npd3bJ2NbluWjryeFs
+
+{
+    "title": "This is an update of edit award",
+    "description": "ASLKFJAFLKADS",
+    "ceremony_date": "2026-1-19T00:00:00",
+    "voting_start": "2025-10-27T17:07",
+    "voting_end": "2025-12-26T17:07",
+    "venue_name": "nATINOAL tHEAORD",
+    "address": "CI-1785-2738, MZ/J 35. Gomoa Eshiem",
+    "city": "Gomoa Eshiem",
+    "region": "Greater Accra",
+    "country": "Ghana",
+    "map_url": "",
+    "video_url": "",
+    "website": "www.ghanasmostbeautiful.com",
+    "facebook": "https://facebook.com/summerfest",
+    "twitter": "GilbertKukah",
+    "instagram": "https://instagram.com/summerfest",
+    "phone": "+233249973054",
+    "show_results": 1,
+    "status": "pending"
+}
+###
+

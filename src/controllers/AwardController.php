@@ -249,16 +249,29 @@ class AwardController
             }
 
             // Validate date order: voting_start < voting_end < ceremony_date
-            $votingStart = new \DateTime($data['voting_start']);
-            $votingEnd = new \DateTime($data['voting_end']);
-            $ceremonyDate = new \DateTime($data['ceremony_date']);
+            try {
+                $votingStart = $data['voting_start']->format('Y-m-d H:i:s');
+                $votingEnd = $data['voting_end']->format('Y-m-d H:i:s');
+                $ceremonyDate = $data['ceremony_date']->format('Y-m-d H:i:s');
+            } catch (Exception $e) {
+                return ResponseHelper::error($response, 'Invalid date format provided: ' . $e->getMessage(), 400);
+            }
 
+            // Compare dates - ensure proper chronological order
             if ($votingStart >= $votingEnd) {
-                return ResponseHelper::error($response, 'Voting start date must be before voting end date', 400);
+                return ResponseHelper::error($response, 
+                    'Voting start date must be before voting end date. ' .
+                    'Start: ' . $votingStart . ', ' .
+                    'End: ' . $votingEnd, 
+                    400);
             }
 
             if ($votingEnd >= $ceremonyDate) {
-                return ResponseHelper::error($response, 'Voting must end before the ceremony date', 400);
+                return ResponseHelper::error($response, 
+                    'Voting must end before the ceremony date. ' .
+                    'Voting End: ' . $votingEnd . ', ' .
+                    'Ceremony: ' . $ceremonyDate, 
+                    400);
             }
 
             // Generate slug if not provided
@@ -357,19 +370,21 @@ class AwardController
         try {
             $id = $args['id'];
             
-            // Get data from either JSON body or form data (for multipart/form-data requests)
+            // Get data from request - handle both JSON and multipart/form-data
             $data = $request->getParsedBody();
-            if ($data === null) {
-                // For multipart/form-data, getParsedBody() returns null
-                // In this case, use $_POST which contains the form data
+            
+            // For multipart/form-data (file uploads), getParsedBody() returns null
+            // In this case, use $_POST which contains the form data
+            if ($data === null || empty($data)) {
                 $data = $_POST;
             }
+            
             if (!is_array($data)) {
                 $data = [];
             }
             
             $uploadedFiles = $request->getUploadedFiles();
-
+            
             $award = Award::find($id);
 
             if (!$award) {
@@ -393,21 +408,45 @@ class AwardController
                     $data['slug'] = $this->generateUniqueSlug($baseSlug);
                 }
             } elseif (isset($data['slug']) && $data['slug'] !== $award->slug) {
-                // If slug is manually provided and different, ensure it's unique
                 $data['slug'] = $this->generateUniqueSlug($data['slug']);
             }
 
-            // Validate date order if any dates are being updated
-            $votingStart = isset($data['voting_start']) ? new \DateTime($data['voting_start']) : new \DateTime($award->voting_start);
-            $votingEnd = isset($data['voting_end']) ? new \DateTime($data['voting_end']) : new \DateTime($award->voting_end);
-            $ceremonyDate = isset($data['ceremony_date']) ? new \DateTime($data['ceremony_date']) : new \DateTime($award->ceremony_date);
+            // // Validate date order if any dates are being updated
+            // // Only validate if dates are provided in the request
+            $hasVotingStart = isset($data['voting_start']);
+            $hasVotingEnd = isset($data['voting_end']);
+            $hasCeremonyDate = isset($data['ceremony_date']);
+            
+            // Log what dates we received for debugging
+            error_log('Award Update ID: ' . $id . 'Title: ' . ($data['title'] ?? 'NOT SET') .' - voting_start: ' . ($data['voting_start'] ?? 'NOT SET') . 
+                      ', voting_end: ' . ($data['voting_end'] ?? 'NOT SET') . 
+                      ', ceremony_date: ' . ($data['ceremony_date'] ?? 'NOT SET'));
+            
+            if ($hasVotingStart || $hasVotingEnd || $hasCeremonyDate) {
+                try {
+                    $votingStart = $hasVotingStart ? ($data['voting_start']) : null;
+                    $votingEnd = $hasVotingEnd ? ($data['voting_end']) : null;
+                    $ceremonyDate = $hasCeremonyDate ? ($data['ceremony_date']) : null;
+                } catch (Exception $e) {
+                    return ResponseHelper::error($response, 'Invalid date format provided: ' . $e->getMessage(), 400);
+                }
 
-            if ($votingStart >= $votingEnd) {
-                return ResponseHelper::error($response, 'Voting start date must be before voting end date', 400);
-            }
+                // Compare dates - ensure proper chronological order
+                if ($votingStart >= $votingEnd) {
+                    return ResponseHelper::error($response, 
+                        'Voting start date must be before voting end date. ' .
+                        'Start: ' . $votingStart . ', ' .
+                        'End: ' . $votingEnd, 
+                        400);
+                }
 
-            if ($votingEnd >= $ceremonyDate) {
-                return ResponseHelper::error($response, 'Voting must end before the ceremony date', 400);
+                if ($votingEnd >= $ceremonyDate) {
+                    return ResponseHelper::error($response, 
+                        'Voting must end before the ceremony date. ' .
+                        'Voting End: ' . $votingEnd . ', ' .
+                        'Ceremony: ' . $ceremonyDate, 
+                        400);
+                }
             }
 
             // Validate status value if provided
@@ -431,6 +470,7 @@ class AwardController
             if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
                 return ResponseHelper::error($response, "Only admins can mark awards as featured", 403);
             }
+
             // Prevent non-admins from changing is_featured value
             if ($user->role !== 'admin' && isset($data['is_featured'])) {
                 unset($data['is_featured']); // Remove from update data
