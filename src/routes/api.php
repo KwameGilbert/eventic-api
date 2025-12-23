@@ -27,14 +27,20 @@ return function ($app): void {
         // Add more routes as needed
     ];
 
+    $loadedFiles = [];
     $loaded = false;
+    
     // Check if the request matches any of our defined prefixes
     foreach ($routeMap as $prefix => $routerFile) {
         if (strpos($requestUri, $prefix) === 0) {
             // Load only the matching router
-            if (file_exists($routerFile)) {
-                (require_once $routerFile)($app);
-                $loaded = true;
+            if (file_exists($routerFile) && !in_array($routerFile, $loadedFiles)) {
+                $routeLoader = require $routerFile;
+                if (is_callable($routeLoader)) {
+                    $routeLoader($app);
+                    $loadedFiles[] = $routerFile;
+                    $loaded = true;
+                }
             }
         }
     }
@@ -42,9 +48,13 @@ return function ($app): void {
     // If no specific router was loaded, load all routers as fallback
     if (!$loaded) {
         foreach ($routeMap as $routerFile) {
-            if (file_exists($routerFile)) {
-                (require_once $routerFile)($app);
+            if (file_exists($routerFile) && !in_array($routerFile, $loadedFiles)) {
+                $routeLoader = require $routerFile;
+                if (is_callable($routeLoader)) {
+                    $routeLoader($app);
+                    $loadedFiles[] = $routerFile;
+                }
             }
         }
-    };
+    }
 };

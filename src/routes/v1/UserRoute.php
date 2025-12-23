@@ -15,7 +15,8 @@ return function (App $app): void {
     // User routes
     $app->get('/v1/users', [$userController, 'index']);
     $app->get('/v1/users/{id}', [$userController, 'show']);
-    // $app->post('/v1/users', [$userController, 'create']);
+    $app->post('/v1/users', [$userController, 'create']);
     $app->put('/v1/users/{id}', [$userController, 'update']);
     $app->delete('/v1/users/{id}', [$userController, 'delete']);
+    $app->post('/v1/auth/login', [$userController, 'login']);
 };
