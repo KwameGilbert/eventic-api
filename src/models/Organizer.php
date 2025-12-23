@@ -96,6 +96,14 @@ class Organizer extends Model
         return $this->hasMany(Event::class, 'organizer_id');
     }
 
+    /**
+     * Get the awards for this organizer.
+     */
+    public function awards()
+    {
+        return $this->hasMany(Award::class, 'organizer_id');
+    }
+
     /* -----------------------------------------------------------------
      |  Static Search Methods
      | -----------------------------------------------------------------

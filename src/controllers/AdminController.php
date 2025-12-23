@@ -67,8 +67,10 @@ class AdminController
             ];
 
             // Revenue
-            $totalTicketRevenue = OrderItem::where('status', 'paid')->sum('total_price');
-            $totalVoteRevenue = AwardVote::where('status', 'paid')
+            $totalTicketRevenue = (float) OrderItem::whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })->sum('total_price');
+            $totalVoteRevenue = (float) AwardVote::where('status', 'paid')
                 ->with('category')
                 ->get()
                 ->sum(function ($vote) {
@@ -83,7 +85,7 @@ class AdminController
             $totalVotesCast = AwardVote::where('status', 'paid')->sum('number_of_votes');
 
             // Recent Activity
-            $recentOrders = Order::with(['user', 'orderItems.event'])
+            $recentOrders = Order::with(['user', 'items.event'])
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get()
@@ -95,7 +97,7 @@ class AdminController
                         'total_amount' => $order->total_amount,
                         'status' => $order->status,
                         'created_at' => $order->created_at->toIso8601String(),
-                        'items_count' => $order->orderItems->count(),
+                        'items_count' => $order->items->count(),
                     ];
                 });
 
@@ -174,8 +176,10 @@ class AdminController
                 ->limit(5)
                 ->get()
                 ->map(function ($event) {
-                    $revenue = OrderItem::where('event_id', $event->id)
-                        ->where('status', 'paid')
+                    $revenue = (float) OrderItem::where('event_id', $event->id)
+                        ->whereHas('order', function ($query) {
+                            $query->where('status', 'paid');
+                        })
                         ->sum('total_price');
                     
                     return [
@@ -192,12 +196,12 @@ class AdminController
                 ->limit(5)
                 ->get()
                 ->map(function ($award) {
-                    $votes = AwardVote::where('event_id', $award->id)
+                    $votes = AwardVote::where('award_id', $award->id)
                         ->where('status', 'paid')
                         ->with('category')
                         ->get();
                     
-                    $revenue = $votes->sum(function ($vote) {
+                    $revenue = (float) $votes->sum(function ($vote) {
                         return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
                     });
                     
@@ -441,6 +445,230 @@ class AdminController
             return ResponseHelper::success($response, 'Award rejected successfully', ['award' => $award]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to reject award', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update user status (activate, suspend, deactivate)
+     * PUT /v1/admin/users/{id}/status
+     */
+    public function updateUserStatus(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $userId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $status = $data['status'] ?? null;
+
+            // Validate status
+            if (!in_array($status, [User::STATUS_ACTIVE, User::STATUS_INACTIVE, User::STATUS_SUSPENDED])) {
+                return ResponseHelper::error($response, 'Invalid status. Must be: active, inactive, or suspended', 400);
+            }
+
+            $user = User::find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Prevent admin from suspending themselves
+            if ($user->id === $jwtUser->id && $status !== User::STATUS_ACTIVE) {
+                return ResponseHelper::error($response, 'You cannot change your own status', 400);
+            }
+
+            $user->status = $status;
+            $user->save();
+
+            return ResponseHelper::success($response, 'User status updated successfully', ['user' => $user]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update user status', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Reset user password
+     * POST /v1/admin/users/{id}/reset-password
+     */
+    public function resetUserPassword(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $userId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $newPassword = $data['password'] ?? null;
+
+            if (!$newPassword || strlen($newPassword) < 6) {
+                return ResponseHelper::error($response, 'Password must be at least 6 characters long', 400);
+            }
+
+            $user = User::find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Update password (will be auto-hashed by User model mutator)
+            $user->password = $newPassword;
+            $user->first_login = true; // Force password change on next login
+            $user->save();
+
+            return ResponseHelper::success($response, 'Password reset successfully', [
+                'message' => 'The user will be required to change their password on next login'
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to reset password', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update user role
+     * PUT /v1/admin/users/{id}/role
+     */
+    public function updateUserRole(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $userId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $role = $data['role'] ?? null;
+
+            // Validate role
+            $validRoles = [User::ROLE_ADMIN, User::ROLE_ORGANIZER, User::ROLE_ATTENDEE, User::ROLE_POS, User::ROLE_SCANNER];
+            if (!in_array($role, $validRoles)) {
+                return ResponseHelper::error($response, 'Invalid role', 400);
+            }
+
+            $user = User::find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Prevent admin from changing their own role
+            if ($user->id === $jwtUser->id) {
+                return ResponseHelper::error($response, 'You cannot change your own role', 400);
+            }
+
+            $oldRole = $user->role;
+            $user->role = $role;
+            $user->save();
+
+            // If changing to/from organizer, handle organizer profile
+            if ($role === User::ROLE_ORGANIZER && $oldRole !== User::ROLE_ORGANIZER) {
+                // Create organizer profile if it doesn't exist
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer) {
+                    Organizer::create([
+                        'user_id' => $user->id,
+                        'organization_name' => $user->name . "'s Organization",
+                    ]);
+                }
+            }
+
+            return ResponseHelper::success($response, 'User role updated successfully', ['user' => $user]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update user role', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete user
+     * DELETE /v1/admin/users/{id}
+     */
+    public function deleteUser(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $userId = (int) $args['id'];
+            $user = User::find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Prevent admin from deleting themselves
+            if ($user->id === $jwtUser->id) {
+                return ResponseHelper::error($response, 'You cannot delete your own account', 400);
+            }
+
+            // Check if user has associated data
+            $hasOrders = false;
+            $hasEvents = false;
+            $hasAwards = false;
+
+            if ($user->role === 'organizer') {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if ($organizer) {
+                    $hasEvents = Event::where('organizer_id', $organizer->id)->exists();
+                    $hasAwards = Award::where('organizer_id', $organizer->id)->exists();
+                }
+            } elseif ($user->role === 'attendee') {
+                $hasOrders = Order::where('user_id', $user->id)->exists();
+            }
+
+            // Warn if user has associated data (but still allow deletion)
+            $warnings = [];
+            if ($hasEvents) $warnings[] = 'This user has created events';
+            if ($hasAwards) $warnings[] = 'This user has created awards';
+            if ($hasOrders) $warnings[] = 'This user has orders';
+
+            // Delete user (cascade deletes will handle related records)
+            $user->delete();
+
+            return ResponseHelper::success($response, 'User deleted successfully', [
+                'warnings' => $warnings,
+                'message' => count($warnings) > 0 
+                    ? 'User deleted. Related records may have been affected.' 
+                    : 'User deleted successfully'
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to delete user', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single user details
+     * GET /v1/admin/users/{id}
+     */
+    public function getUser(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $userId = (int) $args['id'];
+            $user = User::with(['organizer', 'attendee'])->find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            return ResponseHelper::success($response, 'User fetched successfully', ['user' => $user]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch user', 500, $e->getMessage());
         }
     }
 }

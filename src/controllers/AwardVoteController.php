@@ -36,7 +36,7 @@ class AwardVoteController
             $data = $request->getParsedBody();
 
             // Verify nominee exists
-            $nominee = AwardNominee::with(['category', 'event'])->find($nomineeId);
+            $nominee = AwardNominee::with(['category', 'award'])->find($nomineeId);
             if (!$nominee) {
                 return ResponseHelper::error($response, 'Nominee not found', 404);
             }
@@ -109,9 +109,9 @@ class AwardVoteController
                     'id' => $category->id,
                     'name' => $category->name,
                 ],
-                'event' => [
-                    'id' => $nominee->event->id,
-                    'title' => $nominee->event->title,
+                'award' => [
+                    'id' => $nominee->award->id,
+                    'title' => $nominee->award->title,
                 ],
                 'number_of_votes' => $numberOfVotes,
                 'cost_per_vote' => $costPerVote,
@@ -221,7 +221,7 @@ class AwardVoteController
         try {
             $reference = $args['reference'];
 
-            $vote = AwardVote::with(['nominee', 'category', 'event'])
+            $vote = AwardVote::with(['nominee', 'category', 'award'])
                 ->where('reference', $reference)
                 ->first();
 
@@ -243,9 +243,9 @@ class AwardVoteController
                 'name' => $vote->category->name,
             ] : null;
 
-            $voteDetails['event'] = $vote->event ? [
-                'id' => $vote->event->id,
-                'title' => $vote->event->title,
+            $voteDetails['award'] = $vote->award ? [
+                'id' => $vote->award->id,
+                'title' => $vote->award->title,
             ] : null;
 
             return ResponseHelper::success($response, 'Vote details fetched successfully', $voteDetails);

@@ -15,7 +15,7 @@ return function (App $app): void {
     // Public routes (no auth required - voting is open to everyone)
     $app->group('/v1', function ($group) use ($voteController) {
         // Initiate a vote (create pending vote)
-        $group->post('votes/nominees/{nomineeId}', [$voteController, 'initiate']);
+        $group->post('/votes/nominees/{nomineeId}', [$voteController, 'initiate']);
 
         // Confirm vote payment (callback from payment gateway)
         $group->post('/votes/confirm', [$voteController, 'confirmPayment']);

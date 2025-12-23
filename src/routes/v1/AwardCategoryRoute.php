@@ -29,7 +29,7 @@ return function (App $app): void {
     // Protected routes (auth required - organizer/admin only)
     $app->group('/v1', function ($group) use ($categoryController) {
         // Create new category for Awards
-        $group->post('/awards/{awardId}/award-categories', [$categoryController, 'create']);
+        $group->post('/award-categories/events/{awardId}', [$categoryController, 'create']);
 
         // Update category
         $group->put('/award-categories/{id}', [$categoryController, 'update']);

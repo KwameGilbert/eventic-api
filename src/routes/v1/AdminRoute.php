@@ -20,6 +20,11 @@ return function (App $app): void {
 
         // Users Management
         $group->get('/users', [$adminController, 'getUsers']);
+        $group->get('/users/{id}', [$adminController, 'getUser']);
+        $group->put('/users/{id}/status', [$adminController, 'updateUserStatus']);
+        $group->post('/users/{id}/reset-password', [$adminController, 'resetUserPassword']);
+        $group->put('/users/{id}/role', [$adminController, 'updateUserRole']);
+        $group->delete('/users/{id}', [$adminController, 'deleteUser']);
 
         // Event Approvals
         $group->put('/events/{id}/approve', [$adminController, 'approveEvent']);

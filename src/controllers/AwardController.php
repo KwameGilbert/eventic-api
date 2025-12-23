@@ -250,9 +250,9 @@ class AwardController
 
             // Validate date order: voting_start < voting_end < ceremony_date
             try {
-                $votingStart = $data['voting_start']->format('Y-m-d H:i:s');
-                $votingEnd = $data['voting_end']->format('Y-m-d H:i:s');
-                $ceremonyDate = $data['ceremony_date']->format('Y-m-d H:i:s');
+                $votingStart = $data['voting_start'];
+                $votingEnd = $data['voting_end'];
+                $ceremonyDate = $data['ceremony_date'];
             } catch (Exception $e) {
                 return ResponseHelper::error($response, 'Invalid date format provided: ' . $e->getMessage(), 400);
             }
