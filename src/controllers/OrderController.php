@@ -573,7 +573,7 @@ class OrderController
         }
     }
 
-    /**
+   /**
      * Verify payment with Paystack API
      * 
      * @param string $reference Payment reference
@@ -588,25 +588,55 @@ class OrderController
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
                 "Authorization: Bearer " . $this->paystackSecretKey,
+                "Content-Type: application/json",
             ]);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            
+            // SSL Configuration
+            // For production, download cacert.pem from https://curl.se/ca/cacert.pem
+            // and set: curl_setopt($ch, CURLOPT_CAINFO, '/path/to/cacert.pem');
+            $isProduction = ($_ENV['APP_ENV'] ?? 'development') === 'production';
+            
+            if (!$isProduction) {
+                // Development: Disable SSL verification (NOT for production!)
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+            } else {
+                // Production: Verify SSL properly
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+                
+                // If you have a CA bundle file, uncomment and set path:
+                // $caPath = $_ENV['CURL_CA_BUNDLE'] ?? null;
+                // if ($caPath && file_exists($caPath)) {
+                //     curl_setopt($ch, CURLOPT_CAINFO, $caPath);
+                // }
+            }
             
             $result = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $err = curl_error($ch);
             curl_close($ch);
 
             if ($err) {
-                error_log("Paystack verification error: " . $err);
+                error_log("Paystack verification cURL error: " . $err);
+                return null;
+            }
+
+            if ($httpCode !== 200) {
+                error_log("Paystack verification HTTP error: {$httpCode}, Response: {$result}");
                 return null;
             }
 
             $paystackResponse = json_decode($result, true);
 
             if (!$paystackResponse || !isset($paystackResponse['status']) || !$paystackResponse['status']) {
-                error_log("Paystack verification failed: Invalid response");
+                error_log("Paystack verification failed: Invalid response - " . ($result ?? 'empty'));
                 return null;
             }
 
+            error_log("Paystack verification successful for reference: {$reference}");
             return $paystackResponse['data'] ?? null;
         } catch (Exception $e) {
             error_log("Paystack verification exception: " . $e->getMessage());

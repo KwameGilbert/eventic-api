@@ -638,7 +638,7 @@ class AdminController
             }
 
             $eventId = (int) $args['id'];
-            $event = Event::with(['organizer.user'])->find($eventId);
+            $event = Event::with(['organizer.user', 'ticketTypes'])->find($eventId);
 
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
@@ -652,6 +652,31 @@ class AdminController
                 })
                 ->sum('total_price');
 
+            // Get orders count
+            $ordersCount = Order::whereHas('items', function ($query) use ($eventId) {
+                $query->where('event_id', $eventId);
+            })->where('status', 'paid')->count();
+
+            // Get ticket types with sold counts
+            $ticketTypes = [];
+            if ($event->ticketTypes) {
+                foreach ($event->ticketTypes as $ticketType) {
+                    $sold = Ticket::where('event_id', $eventId)
+                        ->where('ticket_type_id', $ticketType->id)
+                        ->count();
+                    
+                    $ticketTypes[] = [
+                        'id' => $ticketType->id,
+                        'name' => $ticketType->name,
+                        'description' => $ticketType->description,
+                        'price' => (float) $ticketType->price,
+                        'quantity' => (int) $ticketType->quantity,
+                        'sold' => $sold,
+                        'max_per_order' => $ticketType->max_per_order ?? 10,
+                    ];
+                }
+            }
+
             $eventData = [
                 'id' => $event->id,
                 'title' => $event->title,
@@ -659,6 +684,7 @@ class AdminController
                 'description' => $event->description,
                 'organizer_id' => $event->organizer_id,
                 'organizer_name' => $event->organizer->user->name ?? 'N/A',
+                'organizer_email' => $event->organizer->user->email ?? null,
                 'venue_name' => $event->venue_name,
                 'address' => $event->address,
                 'city' => $event->city,
@@ -668,9 +694,11 @@ class AdminController
                 'end_time' => $event->end_time ? $event->end_time->toIso8601String() : null,
                 'status' => $event->status,
                 'is_featured' => (bool) $event->is_featured,
-                'platform_fee_percentage' => (float) $event->platform_fee_percentage ?? 1.5,
+                'platform_fee_percentage' => (float) ($event->admin_share_percent ?? 1.5),
                 'tickets_sold' => $ticketsSold,
                 'total_revenue' => round($totalRevenue, 2),
+                'orders_count' => $ordersCount,
+                'ticket_types' => $ticketTypes,
                 'created_at' => $event->created_at->toIso8601String(),
                 'updated_at' => $event->updated_at->toIso8601String(),
             ];
@@ -716,7 +744,7 @@ class AdminController
             if (isset($data['status'])) $event->status = $data['status'];
             if (isset($data['is_featured'])) $event->is_featured = filter_var($data['is_featured'], FILTER_VALIDATE_BOOLEAN);
             if (isset($data['platform_fee_percentage'])) {
-                $event->platform_fee_percentage = (float) $data['platform_fee_percentage'];
+                $event->admin_share_percent = (float) $data['platform_fee_percentage'];
             }
 
             $event->save();
@@ -766,7 +794,7 @@ class AdminController
                     ->get();
 
                     $totalRevenue = (float) $votes->sum(function ($vote) {
-                        return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
+                        return $vote->number_of_votes * ($vote->category->cost_per_vote);
                     });
 
                     return [
@@ -778,8 +806,8 @@ class AdminController
                         'organizer_name' => $award->organizer->user->name ?? 'N/A',
                         'banner_image' => $award->banner_image,
                         'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->toIso8601String() : null,
-                        'voting_start_date' => $award->voting_start_date ? $award->voting_start_date->toIso8601String() : null,
-                        'voting_end_date' => $award->voting_end_date ? $award->voting_end_date->toIso8601String() : null,
+                        'voting_start' => $award->voting_start ? $award->voting_start->toIso8601String() : null,
+                        'voting_end' => $award->voting_end ? $award->voting_end->toIso8601String() : null,
                         'status' => $award->status,
                         'is_featured' => (bool) $award->is_featured,
                         'categories_count' => $award->categories_count ?? 0,
@@ -929,7 +957,7 @@ class AdminController
             }
 
             $awardId = (int) $args['id'];
-            $award = Award::with(['organizer.user', 'categories'])->find($awardId);
+            $award = Award::with(['organizer.user', 'categories.nominees'])->find($awardId);
 
             if (!$award) {
                 return ResponseHelper::error($response, 'Award not found', 404);
@@ -953,6 +981,43 @@ class AdminController
                 return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
             });
 
+            // Build categories with nominees and vote counts
+            $categoriesData = [];
+            $totalNominees = 0;
+            
+            foreach ($award->categories as $category) {
+                $categoryVotes = AwardVote::where('category_id', $category->id)
+                    ->where('status', 'paid')
+                    ->sum('number_of_votes');
+                
+                $nomineesData = [];
+                foreach ($category->nominees as $nominee) {
+                    $nomineeVotes = AwardVote::where('nominee_id', $nominee->id)
+                        ->where('status', 'paid')
+                        ->sum('number_of_votes');
+                    
+                    $nomineesData[] = [
+                        'id' => $nominee->id,
+                        'name' => $nominee->name,
+                        'description' => $nominee->description,
+                        'image' => $nominee->image,
+                        'total_votes' => (int) $nomineeVotes,
+                        'display_order' => $nominee->display_order,
+                    ];
+                    $totalNominees++;
+                }
+                
+                $categoriesData[] = [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'description' => $category->description,
+                    'cost_per_vote' => (float) ($category->cost_per_vote ?? 5),
+                    'total_votes' => (int) $categoryVotes,
+                    'nominees' => $nomineesData,
+                    'display_order' => $category->display_order,
+                ];
+            }
+
             $awardData = [
                 'id' => $award->id,
                 'title' => $award->title,
@@ -960,16 +1025,19 @@ class AdminController
                 'description' => $award->description,
                 'organizer_id' => $award->organizer_id,
                 'organizer_name' => $award->organizer->user->name ?? 'N/A',
+                'organizer_email' => $award->organizer->user->email ?? null,
                 'banner_image' => $award->banner_image,
                 'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->toIso8601String() : null,
-                'voting_start_date' => $award->voting_start_date ? $award->voting_start_date->toIso8601String() : null,
-                'voting_end_date' => $award->voting_end_date ? $award->voting_end_date->toIso8601String() : null,
+                'voting_start' => $award->voting_start ? $award->voting_start->toIso8601String() : null,
+                'voting_end' => $award->voting_end ? $award->voting_end->toIso8601String() : null,
                 'status' => $award->status,
                 'is_featured' => (bool) $award->is_featured,
-                'platform_fee_percentage' => (float) $award->platform_fee_percentage ?? 5.0,
+                'platform_fee_percentage' => (float) ($award->admin_share_percent ?? 5.0),
                 'categories_count' => $award->categories->count(),
-                'total_votes' => $totalVotes,
+                'nominees_count' => $totalNominees,
+                'total_votes' => (int) $totalVotes,
                 'total_revenue' => round($totalRevenue, 2),
+                'categories' => $categoriesData,
                 'created_at' => $award->created_at->toIso8601String(),
                 'updated_at' => $award->updated_at->toIso8601String(),
             ];
@@ -1007,12 +1075,12 @@ class AdminController
             if (isset($data['description'])) $award->description = $data['description'];
             if (isset($data['banner_image'])) $award->banner_image = $data['banner_image'];
             if (isset($data['ceremony_date'])) $award->ceremony_date = $data['ceremony_date'];
-            if (isset($data['voting_start_date'])) $award->voting_start_date = $data['voting_start_date'];
-            if (isset($data['voting_end_date'])) $award->voting_end_date = $data['voting_end_date'];
+            if (isset($data['voting_start'])) $award->voting_start = $data['voting_start'];
+            if (isset($data['voting_end'])) $award->voting_end = $data['voting_end'];
             if (isset($data['status'])) $award->status = $data['status'];
             if (isset($data['is_featured'])) $award->is_featured = filter_var($data['is_featured'], FILTER_VALIDATE_BOOLEAN);
             if (isset($data['platform_fee_percentage'])) {
-                $award->platform_fee_percentage = (float) $data['platform_fee_percentage'];
+                $award->admin_share_percent = (float) $data['platform_fee_percentage'];
             }
 
             $award->save();
