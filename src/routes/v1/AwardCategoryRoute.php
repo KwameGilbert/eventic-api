@@ -37,8 +37,8 @@ return function (App $app): void {
         // Delete category
         $group->delete('/award-categories/{id}', [$categoryController, 'delete']);
 
-        // Reorder categories
-        $group->post('/awards/{awardId}/award-categories/reorder', [$categoryController, 'reorder']);
+        // Reorder categories for an award
+        $group->post('/award-categories/awards/{awardId}/reorder', [$categoryController, 'reorder']);
     })->add($authMiddleware);
 };
 

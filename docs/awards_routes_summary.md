@@ -17,7 +17,7 @@
 - `POST /v1/events/{eventId}/award-categories` - Create new category
 - `PUT /v1/award-categories/{id}` - Update category
 - `DELETE /v1/award-categories/{id}` - Delete category
-- `POST /v1/events/{eventId}/award-categories/reorder` - Reorder categories
+- `POST /v1/award-categories/awards/{awardId}/reorder` - Reorder categories
 
 ---
 

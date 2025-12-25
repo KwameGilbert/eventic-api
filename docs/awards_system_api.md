@@ -87,13 +87,13 @@ GET /v1/award-categories/{id}/stats
 
 #### 7. Reorder Categories
 ```
-POST /v1/events/{eventId}/award-categories/reorder
+POST /v1/award-categories/awards/{awardId}/reorder
 Body: {
   "order": [3, 1, 2, 5, 4]  // Array of category IDs in new order
 }
 ```
-- Reorders categories for an event
-- **Requires Auth**: Event owner/Admin only
+- Reorders categories for an award
+- **Requires Auth**: Award owner/Admin only
 
 ---
 

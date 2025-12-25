@@ -10,7 +10,7 @@
     "phinx-migrate": "phinx migrate",
     "phinx-create-seed": "phinx seed:create",
     "phinx-status": "phinx status",
-    "phinx-run-seed": "phinx seed:run",
+    "phinx-seed": "phinx seed:run",
     "phinx-rollback": "phinx rollback"
   },
   "autoload": {

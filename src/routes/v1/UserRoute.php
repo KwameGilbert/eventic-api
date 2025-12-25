@@ -18,5 +18,4 @@ return function (App $app): void {
     $app->post('/v1/users', [$userController, 'create']);
     $app->put('/v1/users/{id}', [$userController, 'update']);
     $app->delete('/v1/users/{id}', [$userController, 'delete']);
-    $app->post('/v1/auth/login', [$userController, 'login']);
 };
