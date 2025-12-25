@@ -448,6 +448,581 @@ class AdminController
         }
     }
 
+    // ===================================================================
+    // EVENT MANAGEMENT
+    // ===================================================================
+
+    /**
+     * Get all events (admin)
+     * GET /v1/admin/events
+     */
+    public function getEvents(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            // Get all events with organizer info, tickets count, and revenue
+            $events = Event::with(['organizer.user', 'ticketTypes'])
+                ->withCount(['tickets as tickets_sold'])
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($event) {
+                    // Calculate total revenue for this event
+                    $totalRevenue = (float) OrderItem::where('event_id', $event->id)
+                        ->whereHas('order', function ($query) {
+                            $query->where('status', 'paid');
+                        })
+                        ->sum('total_price');
+
+                    return [
+                        'id' => $event->id,
+                        'title' => $event->title,
+                        'slug' => $event->slug,
+                        'description' => $event->description,
+                        'organizer_id' => $event->organizer_id,
+                        'organizer_name' => $event->organizer->user->name ?? 'N/A',
+                        'venue_name' => $event->venue_name,
+                        'address' => $event->address,
+                        'banner_image' => $event->banner_image,
+                        'start_time' => $event->start_time ? $event->start_time->toIso8601String() : null,
+                        'end_time' => $event->end_time ? $event->end_time->toIso8601String() : null,
+                        'status' => $event->status,
+                        'is_featured' => (bool) $event->is_featured,
+                        'tickets_sold' => $event->tickets_sold ?? 0,
+                        'total_revenue' => round($totalRevenue, 2),
+                        'created_at' => $event->created_at->toIso8601String(),
+                        'updated_at' => $event->updated_at->toIso8601String(),
+                    ];
+                });
+
+            return ResponseHelper::success($response, 'Events fetched successfully', ['events' => $events]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch events', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update event status
+     * PUT /v1/admin/events/{id}/status
+     */
+    public function updateEventStatus(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $eventId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $status = $data['status'] ?? null;
+
+            // Validate status
+            $validStatuses = [
+                Event::STATUS_DRAFT,
+                Event::STATUS_PENDING,
+                Event::STATUS_PUBLISHED,
+                Event::STATUS_CANCELLED,
+                Event::STATUS_COMPLETED
+            ];
+
+            if (!in_array($status, $validStatuses)) {
+                return ResponseHelper::error($response, 'Invalid status. Must be: draft, pending, published, cancelled, or completed', 400);
+            }
+
+            $event = Event::find($eventId);
+
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            $event->status = $status;
+            $event->save();
+
+            return ResponseHelper::success($response, "Event status updated to {$status}", ['event' => $event]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update event status', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Toggle event featured status
+     * PUT /v1/admin/events/{id}/feature
+     */
+    public function toggleEventFeatured(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $eventId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $isFeatured = filter_var($data['is_featured'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            $event = Event::find($eventId);
+
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            $event->is_featured = $isFeatured;
+            $event->save();
+
+            $message = $isFeatured ? 'Event featured successfully' : 'Event unfeatured successfully';
+            return ResponseHelper::success($response, $message, ['event' => $event]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update featured status', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete event
+     * DELETE /v1/admin/events/{id}
+     */
+    public function deleteEvent(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $eventId = (int) $args['id'];
+            $event = Event::find($eventId);
+
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Get counts before deletion for reporting
+            $ticketsCount = Ticket::where('event_id', $eventId)->count();
+            $ordersCount = Order::whereHas('items', function ($query) use ($eventId) {
+                $query->where('event_id', $eventId);
+            })->count();
+
+            // Delete the event (cascade will handle related records)
+            $eventTitle = $event->title;
+            $event->delete();
+
+            return ResponseHelper::success($response, 'Event deleted successfully', [
+                'event_title' => $eventTitle,
+                'tickets_deleted' => $ticketsCount,
+                'orders_affected' => $ordersCount,
+                'message' => "Event '{$eventTitle}' and all associated data has been permanently deleted."
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to delete event', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single event details (admin - full details)
+     * GET /v1/admin/events/{id}
+     */
+    public function getEventDetail(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $eventId = (int) $args['id'];
+            $event = Event::with(['organizer.user'])->find($eventId);
+
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Calculate tickets sold and revenue
+            $ticketsSold = Ticket::where('event_id', $eventId)->count();
+            $totalRevenue = (float) OrderItem::where('event_id', $eventId)
+                ->whereHas('order', function ($query) {
+                    $query->where('status', 'paid');
+                })
+                ->sum('total_price');
+
+            $eventData = [
+                'id' => $event->id,
+                'title' => $event->title,
+                'slug' => $event->slug,
+                'description' => $event->description,
+                'organizer_id' => $event->organizer_id,
+                'organizer_name' => $event->organizer->user->name ?? 'N/A',
+                'venue_name' => $event->venue_name,
+                'address' => $event->address,
+                'city' => $event->city,
+                'country' => $event->country,
+                'banner_image' => $event->banner_image,
+                'start_time' => $event->start_time ? $event->start_time->toIso8601String() : null,
+                'end_time' => $event->end_time ? $event->end_time->toIso8601String() : null,
+                'status' => $event->status,
+                'is_featured' => (bool) $event->is_featured,
+                'platform_fee_percentage' => (float) $event->platform_fee_percentage ?? 1.5,
+                'tickets_sold' => $ticketsSold,
+                'total_revenue' => round($totalRevenue, 2),
+                'created_at' => $event->created_at->toIso8601String(),
+                'updated_at' => $event->updated_at->toIso8601String(),
+            ];
+
+            return ResponseHelper::success($response, 'Event details fetched successfully', ['event' => $eventData]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch event details', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update event (admin - full update)
+     * PUT /v1/admin/events/{id}
+     */
+    public function updateEventFull(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $eventId = (int) $args['id'];
+            $data = $request->getParsedBody();
+
+            $event = Event::find($eventId);
+
+            if (!$event) {
+                return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            // Update allowed fields
+            if (isset($data['title'])) $event->title = $data['title'];
+            if (isset($data['description'])) $event->description = $data['description'];
+            if (isset($data['venue_name'])) $event->venue_name = $data['venue_name'];
+            if (isset($data['address'])) $event->address = $data['address'];
+            if (isset($data['city'])) $event->city = $data['city'];
+            if (isset($data['country'])) $event->country = $data['country'];
+            if (isset($data['banner_image'])) $event->banner_image = $data['banner_image'];
+            if (isset($data['start_time'])) $event->start_time = $data['start_time'];
+            if (isset($data['end_time'])) $event->end_time = $data['end_time'];
+            if (isset($data['status'])) $event->status = $data['status'];
+            if (isset($data['is_featured'])) $event->is_featured = filter_var($data['is_featured'], FILTER_VALIDATE_BOOLEAN);
+            if (isset($data['platform_fee_percentage'])) {
+                $event->platform_fee_percentage = (float) $data['platform_fee_percentage'];
+            }
+
+            $event->save();
+
+            return ResponseHelper::success($response, 'Event updated successfully', ['event' => $event]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update event', 500, $e->getMessage());
+        }
+    }
+
+    // ===================================================================
+    // AWARD MANAGEMENT
+    // ===================================================================
+
+    /**
+     * Get all awards (admin)
+     * GET /v1/admin/awards
+     */
+    public function getAwards(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            // Get all awards with organizer info, categories count, votes count, and revenue
+            $awards = Award::with(['organizer.user', 'categories'])
+                ->withCount('categories')
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($award) {
+                    // Calculate total votes for this award
+                    $totalVotes = AwardVote::whereHas('category', function ($query) use ($award) {
+                        $query->where('award_id', $award->id);
+                    })
+                    ->where('status', 'paid')
+                    ->sum('number_of_votes');
+
+                    // Calculate total revenue for this award
+                    $votes = AwardVote::whereHas('category', function ($query) use ($award) {
+                        $query->where('award_id', $award->id);
+                    })
+                    ->where('status', 'paid')
+                    ->with('category')
+                    ->get();
+
+                    $totalRevenue = (float) $votes->sum(function ($vote) {
+                        return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
+                    });
+
+                    return [
+                        'id' => $award->id,
+                        'title' => $award->title,
+                        'slug' => $award->slug,
+                        'description' => $award->description,
+                        'organizer_id' => $award->organizer_id,
+                        'organizer_name' => $award->organizer->user->name ?? 'N/A',
+                        'banner_image' => $award->banner_image,
+                        'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->toIso8601String() : null,
+                        'voting_start_date' => $award->voting_start_date ? $award->voting_start_date->toIso8601String() : null,
+                        'voting_end_date' => $award->voting_end_date ? $award->voting_end_date->toIso8601String() : null,
+                        'status' => $award->status,
+                        'is_featured' => (bool) $award->is_featured,
+                        'categories_count' => $award->categories_count ?? 0,
+                        'total_votes' => $totalVotes,
+                        'total_revenue' => round($totalRevenue, 2),
+                        'created_at' => $award->created_at->toIso8601String(),
+                        'updated_at' => $award->updated_at->toIso8601String(),
+                    ];
+                });
+
+            return ResponseHelper::success($response, 'Awards fetched successfully', ['awards' => $awards]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch awards', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update award status
+     * PUT /v1/admin/awards/{id}/status
+     */
+    public function updateAwardStatus(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $awardId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $status = $data['status'] ?? null;
+
+            // Validate status
+            $validStatuses = [
+                Award::STATUS_DRAFT,
+                Award::STATUS_PENDING,
+                Award::STATUS_PUBLISHED,
+                Award::STATUS_COMPLETED,
+                Award::STATUS_CLOSED
+            ];
+
+            if (!in_array($status, $validStatuses)) {
+                return ResponseHelper::error($response, 'Invalid status. Must be: draft, pending, published, completed, or closed', 400);
+            }
+
+            $award = Award::find($awardId);
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            $award->status = $status;
+            $award->save();
+
+            return ResponseHelper::success($response, "Award status updated to {$status}", ['award' => $award]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update award status', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Toggle award featured status
+     * PUT /v1/admin/awards/{id}/feature
+     */
+    public function toggleAwardFeatured(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $awardId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $isFeatured = filter_var($data['is_featured'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            $award = Award::find($awardId);
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            $award->is_featured = $isFeatured;
+            $award->save();
+
+            $message = $isFeatured ? 'Award featured successfully' : 'Award unfeatured successfully';
+            return ResponseHelper::success($response, $message, ['award' => $award]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update featured status', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete award
+     * DELETE /v1/admin/awards/{id}
+     */
+    public function deleteAward(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $awardId = (int) $args['id'];
+            $award = Award::find($awardId);
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Get counts before deletion for reporting
+            $categoriesCount = $award->categories()->count();
+            $votesCount = AwardVote::whereHas('category', function ($query) use ($awardId) {
+                $query->where('award_id', $awardId);
+            })->count();
+
+            // Delete the award (cascade will handle related records)
+            $awardTitle = $award->title;
+            $award->delete();
+
+            return ResponseHelper::success($response, 'Award deleted successfully', [
+                'award_title' => $awardTitle,
+                'categories_deleted' => $categoriesCount,
+                'votes_affected' => $votesCount,
+                'message' => "Award '{$awardTitle}' and all associated data has been permanently deleted."
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to delete award', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single award details (admin - full details)
+     * GET /v1/admin/awards/{id}
+     */
+    public function getAwardDetail(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $awardId = (int) $args['id'];
+            $award = Award::with(['organizer.user', 'categories'])->find($awardId);
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Calculate total votes and revenue
+            $totalVotes = AwardVote::whereHas('category', function ($query) use ($awardId) {
+                $query->where('award_id', $awardId);
+            })
+            ->where('status', 'paid')
+            ->sum('number_of_votes');
+
+            $votes = AwardVote::whereHas('category', function ($query) use ($awardId) {
+                $query->where('award_id', $awardId);
+            })
+            ->where('status', 'paid')
+            ->with('category')
+            ->get();
+
+            $totalRevenue = (float) $votes->sum(function ($vote) {
+                return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
+            });
+
+            $awardData = [
+                'id' => $award->id,
+                'title' => $award->title,
+                'slug' => $award->slug,
+                'description' => $award->description,
+                'organizer_id' => $award->organizer_id,
+                'organizer_name' => $award->organizer->user->name ?? 'N/A',
+                'banner_image' => $award->banner_image,
+                'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->toIso8601String() : null,
+                'voting_start_date' => $award->voting_start_date ? $award->voting_start_date->toIso8601String() : null,
+                'voting_end_date' => $award->voting_end_date ? $award->voting_end_date->toIso8601String() : null,
+                'status' => $award->status,
+                'is_featured' => (bool) $award->is_featured,
+                'platform_fee_percentage' => (float) $award->platform_fee_percentage ?? 5.0,
+                'categories_count' => $award->categories->count(),
+                'total_votes' => $totalVotes,
+                'total_revenue' => round($totalRevenue, 2),
+                'created_at' => $award->created_at->toIso8601String(),
+                'updated_at' => $award->updated_at->toIso8601String(),
+            ];
+
+            return ResponseHelper::success($response, 'Award details fetched successfully', ['award' => $awardData]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch award details', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update award (admin - full update)
+     * PUT /v1/admin/awards/{id}
+     */
+    public function updateAwardFull(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $awardId = (int) $args['id'];
+            $data = $request->getParsedBody();
+
+            $award = Award::find($awardId);
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Update allowed fields
+            if (isset($data['title'])) $award->title = $data['title'];
+            if (isset($data['description'])) $award->description = $data['description'];
+            if (isset($data['banner_image'])) $award->banner_image = $data['banner_image'];
+            if (isset($data['ceremony_date'])) $award->ceremony_date = $data['ceremony_date'];
+            if (isset($data['voting_start_date'])) $award->voting_start_date = $data['voting_start_date'];
+            if (isset($data['voting_end_date'])) $award->voting_end_date = $data['voting_end_date'];
+            if (isset($data['status'])) $award->status = $data['status'];
+            if (isset($data['is_featured'])) $award->is_featured = filter_var($data['is_featured'], FILTER_VALIDATE_BOOLEAN);
+            if (isset($data['platform_fee_percentage'])) {
+                $award->platform_fee_percentage = (float) $data['platform_fee_percentage'];
+            }
+
+            $award->save();
+
+            return ResponseHelper::success($response, 'Award updated successfully', ['award' => $award]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update award', 500, $e->getMessage());
+        }
+    }
+
     /**
      * Update user status (activate, suspend, deactivate)
      * PUT /v1/admin/users/{id}/status

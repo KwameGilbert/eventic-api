@@ -26,10 +26,27 @@ return function (App $app): void {
         $group->put('/users/{id}/role', [$adminController, 'updateUserRole']);
         $group->delete('/users/{id}', [$adminController, 'deleteUser']);
 
+        
+        // Event Management (Full Admin Control)
+        $group->get('/events', [$adminController, 'getEvents']);
+        $group->get('/events/{id}', [$adminController, 'getEventDetail']);
+        $group->put('/events/{id}', [$adminController, 'updateEventFull']);
+        $group->put('/events/{id}/status', [$adminController, 'updateEventStatus']);
+        $group->put('/events/{id}/feature', [$adminController, 'toggleEventFeatured']);
+        $group->delete('/events/{id}', [$adminController, 'deleteEvent']);
+        
         // Event Approvals
         $group->put('/events/{id}/approve', [$adminController, 'approveEvent']);
         $group->put('/events/{id}/reject', [$adminController, 'rejectEvent']);
-
+        
+        // Award Management (Full Admin Control)
+        $group->get('/awards', [$adminController, 'getAwards']);
+        $group->get('/awards/{id}', [$adminController, 'getAwardDetail']);
+        $group->put('/awards/{id}', [$adminController, 'updateAwardFull']);
+        $group->put('/awards/{id}/status', [$adminController, 'updateAwardStatus']);
+        $group->put('/awards/{id}/feature', [$adminController, 'toggleAwardFeatured']);
+        $group->delete('/awards/{id}', [$adminController, 'deleteAward']);
+        
         // Award Approvals
         $group->put('/awards/{id}/approve', [$adminController, 'approveAward']);
         $group->put('/awards/{id}/reject', [$adminController, 'rejectAward']);
