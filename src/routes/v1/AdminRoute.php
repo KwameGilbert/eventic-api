@@ -51,6 +51,9 @@ return function (App $app): void {
         $group->put('/awards/{id}/approve', [$adminController, 'approveAward']);
         $group->put('/awards/{id}/reject', [$adminController, 'rejectAward']);
 
+        // Finance Overview
+        $group->get('/finance', [$adminController, 'getFinanceOverview']);
+
         // Note: Payout management routes (/payouts/*) are in PayoutRoute.php
     })->add($authMiddleware);
 };

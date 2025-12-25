@@ -58,8 +58,50 @@ class PayoutController
             // Get all payouts without pagination
             $payouts = $query->get();
 
+            // Format payouts for frontend
+            $formattedPayouts = $payouts->map(function ($payout) {
+                // Get source name(s)
+                $sources = [];
+                if ($payout->event) {
+                    $sources[] = $payout->event->title;
+                }
+                if ($payout->award) {
+                    $sources[] = $payout->award->title;
+                }
+                if (empty($sources)) {
+                    $sources[] = $payout->payout_type === 'event' ? 'Event Payout' : 'Award Payout';
+                }
+
+                // Get account ending digits
+                $accountEnding = '';
+                if ($payout->account_number) {
+                    $accountEnding = substr($payout->account_number, -4);
+                }
+
+                return [
+                    'id' => $payout->id,
+                    'date' => $payout->created_at ? $payout->created_at->format('M d, Y') : null,
+                    'created_at' => $payout->created_at,
+                    'method' => $payout->payment_method === 'mobile_money' ? 'Mobile Money' : 'Bank Transfer',
+                    'payment_method' => $payout->payment_method,
+                    'accountEnding' => $accountEnding,
+                    'account_name' => $payout->account_name,
+                    'bank_name' => $payout->bank_name,
+                    'amount' => (float) $payout->amount,
+                    'status' => ucfirst($payout->status),
+                    'events' => $sources,
+                    'source' => implode(', ', $sources),
+                    'payout_type' => $payout->payout_type,
+                    'event_id' => $payout->event_id,
+                    'award_id' => $payout->award_id,
+                    'processed_at' => $payout->processed_at,
+                    'rejection_reason' => $payout->rejection_reason,
+                    'notes' => $payout->notes,
+                ];
+            })->toArray();
+
             $data = [
-                'payouts' => $payouts->toArray(),
+                'payouts' => $formattedPayouts,
                 'count' => $payouts->count(),
             ];
 
@@ -89,12 +131,22 @@ class PayoutController
             // Recalculate to ensure accuracy
             $balance->recalculateFromTransactions();
 
+            // Calculate pending payout requests (already requested but not completed)
+            $pendingPayoutsTotal = (float) PayoutRequest::where('organizer_id', $organizer->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->sum('amount');
+
+            // Net available = available - already pending payouts
+            $netAvailableBalance = max(0, (float) $balance->available_balance - $pendingPayoutsTotal);
+
             $data = [
                 'available_balance' => (float) $balance->available_balance,
                 'pending_balance' => (float) $balance->pending_balance,
+                'pending_payouts' => $pendingPayoutsTotal,
+                'net_available_balance' => $netAvailableBalance,
                 'total_earned' => (float) $balance->total_earned,
                 'total_withdrawn' => (float) $balance->total_withdrawn,
-                'can_request_payout' => $balance->canRequestPayout(),
+                'can_request_payout' => $netAvailableBalance >= PlatformSetting::getMinPayoutAmount(),
                 'min_payout_amount' => PlatformSetting::getMinPayoutAmount(),
                 'payout_hold_days' => PlatformSetting::getPayoutHoldDays(),
                 'last_payout_at' => $balance->last_payout_at?->toIso8601String(),
@@ -178,7 +230,15 @@ class PayoutController
 
             // Get balance
             $balance = OrganizerBalance::getOrCreate($organizer->id);
-            $availableAmount = (float) $balance->available_balance;
+            $balance->recalculateFromTransactions(); // Ensure balance is up to date
+            $baseAvailableAmount = (float) $balance->available_balance;
+
+            // Subtract already pending/processing payout requests from available balance
+            $pendingPayoutsTotal = PayoutRequest::where('organizer_id', $organizer->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->sum('amount');
+            
+            $availableAmount = max(0, $baseAvailableAmount - (float) $pendingPayoutsTotal);
 
             $minAmount = PlatformSetting::getMinPayoutAmount();
             if ($requestedAmount < $minAmount) {
@@ -186,7 +246,7 @@ class PayoutController
             }
 
             if ($requestedAmount > $availableAmount) {
-                return ResponseHelper::error($response, "Requested amount (GHS {$requestedAmount}) exceeds available balance (GHS {$availableAmount})", 400);
+                return ResponseHelper::error($response, "Requested amount (GHS {$requestedAmount}) exceeds available balance (GHS " . number_format($availableAmount, 2) . ")", 400);
             }
 
             // Create payout request
@@ -287,7 +347,15 @@ class PayoutController
 
             // Get balance
             $balance = OrganizerBalance::getOrCreate($organizer->id);
-            $availableAmount = (float) $balance->available_balance;
+            $balance->recalculateFromTransactions(); // Ensure balance is up to date
+            $baseAvailableAmount = (float) $balance->available_balance;
+
+            // Subtract already pending/processing payout requests from available balance
+            $pendingPayoutsTotal = PayoutRequest::where('organizer_id', $organizer->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->sum('amount');
+            
+            $availableAmount = max(0, $baseAvailableAmount - (float) $pendingPayoutsTotal);
 
             $minAmount = PlatformSetting::getMinPayoutAmount();
             if ($requestedAmount < $minAmount) {
@@ -295,7 +363,7 @@ class PayoutController
             }
 
             if ($requestedAmount > $availableAmount) {
-                return ResponseHelper::error($response, "Requested amount (GHS {$requestedAmount}) exceeds available balance (GHS {$availableAmount})", 400);
+                return ResponseHelper::error($response, "Requested amount (GHS {$requestedAmount}) exceeds available balance (GHS " . number_format($availableAmount, 2) . ")", 400);
             }
 
             // Create payout request

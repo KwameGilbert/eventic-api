@@ -12,6 +12,8 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\AwardVote;
 use App\Models\Ticket;
+use App\Models\PayoutRequest;
+use App\Models\OrganizerBalance;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -1290,7 +1292,7 @@ class AdminController
     }
 
     /**
-     * Get single user details
+     * Get comprehensive user details with role-specific data
      * GET /v1/admin/users/{id}
      */
     public function getUser(Request $request, Response $response, array $args): Response
@@ -1298,7 +1300,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -1309,9 +1311,524 @@ class AdminController
                 return ResponseHelper::error($response, 'User not found', 404);
             }
 
-            return ResponseHelper::success($response, 'User fetched successfully', ['user' => $user]);
+            // Base user data
+            $userData = [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'role' => $user->role,
+                'status' => $user->status,
+                'avatar' => $user->avatar,
+                'email_verified_at' => $user->email_verified_at,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at,
+                'last_login_at' => $user->last_login_at,
+            ];
+
+            // Role-specific data
+            $roleData = [];
+            $stats = [];
+
+            if ($user->role === 'organizer' && $user->organizer) {
+                // ===== ORGANIZER DATA =====
+                $organizer = $user->organizer;
+                
+                $roleData['organizer'] = [
+                    'id' => $organizer->id,
+                    'business_name' => $organizer->business_name,
+                    'business_type' => $organizer->business_type,
+                    'description' => $organizer->description,
+                    'logo' => $organizer->logo,
+                    'banner_image' => $organizer->banner_image,
+                    'website' => $organizer->website,
+                    'address' => $organizer->address,
+                    'city' => $organizer->city,
+                    'region' => $organizer->region,
+                    'country' => $organizer->country,
+                    'social_links' => $organizer->social_links,
+                    'verification_status' => $organizer->verification_status,
+                    'is_featured' => $organizer->is_featured,
+                    'created_at' => $organizer->created_at,
+                ];
+
+                // Get all events for this organizer
+                $events = Event::where('organizer_id', $organizer->id)
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($event) {
+                        $ticketsSold = Ticket::where('event_id', $event->id)->count();
+                        $revenue = OrderItem::where('event_id', $event->id)
+                            ->whereHas('order', fn($q) => $q->where('status', 'paid'))
+                            ->sum('total_price');
+                        
+                        return [
+                            'id' => $event->id,
+                            'title' => $event->title,
+                            'slug' => $event->slug,
+                            'status' => $event->status,
+                            'is_featured' => $event->is_featured,
+                            'start_time' => $event->start_time,
+                            'end_time' => $event->end_time,
+                            'venue_name' => $event->venue_name,
+                            'tickets_sold' => $ticketsSold,
+                            'revenue' => round((float) $revenue, 2),
+                            'created_at' => $event->created_at,
+                        ];
+                    });
+
+                $roleData['events'] = $events;
+
+                // Get all awards for this organizer
+                $awards = Award::where('organizer_id', $organizer->id)
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($award) {
+                        $totalVotes = AwardVote::where('award_id', $award->id)
+                            ->where('status', 'paid')
+                            ->sum('number_of_votes');
+                        $revenue = AwardVote::where('award_id', $award->id)
+                            ->where('status', 'paid')
+                            ->sum('gross_amount');
+
+                        return [
+                            'id' => $award->id,
+                            'title' => $award->title,
+                            'slug' => $award->slug,
+                            'status' => $award->status,
+                            'is_featured' => $award->is_featured,
+                            'ceremony_date' => $award->ceremony_date,
+                            'voting_start' => $award->voting_start,
+                            'voting_end' => $award->voting_end,
+                            'total_votes' => (int) $totalVotes,
+                            'revenue' => round((float) $revenue, 2),
+                            'created_at' => $award->created_at,
+                        ];
+                    });
+
+                $roleData['awards'] = $awards;
+
+                // Get payout requests
+                $payouts = PayoutRequest::where('organizer_id', $organizer->id)
+                    ->with(['event', 'award'])
+                    ->orderBy('created_at', 'desc')
+                    ->limit(20)
+                    ->get()
+                    ->map(function ($payout) {
+                        return [
+                            'id' => $payout->id,
+                            'amount' => (float) $payout->amount,
+                            'status' => $payout->status,
+                            'payment_method' => $payout->payment_method,
+                            'payout_type' => $payout->payout_type,
+                            'source' => $payout->payout_type === 'event' 
+                                ? ($payout->event->title ?? 'Unknown Event')
+                                : ($payout->award->title ?? 'Unknown Award'),
+                            'created_at' => $payout->created_at,
+                            'processed_at' => $payout->processed_at,
+                        ];
+                    });
+
+                $roleData['payouts'] = $payouts;
+
+                // Get organizer balance
+                $balance = OrganizerBalance::where('organizer_id', $organizer->id)->first();
+                if ($balance) {
+                    $roleData['balance'] = [
+                        'available_balance' => (float) $balance->available_balance,
+                        'pending_balance' => (float) $balance->pending_balance,
+                        'total_earned' => (float) $balance->total_earned,
+                        'total_withdrawn' => (float) $balance->total_withdrawn,
+                        'last_payout_at' => $balance->last_payout_at,
+                    ];
+                }
+
+                // Calculate stats
+                $totalEventsRevenue = $events->sum('revenue');
+                $totalAwardsRevenue = $awards->sum('revenue');
+                
+                $stats = [
+                    'total_events' => $events->count(),
+                    'published_events' => $events->where('status', 'published')->count(),
+                    'total_awards' => $awards->count(),
+                    'published_awards' => $awards->where('status', 'published')->count(),
+                    'total_tickets_sold' => $events->sum('tickets_sold'),
+                    'total_votes' => $awards->sum('total_votes'),
+                    'total_revenue' => round($totalEventsRevenue + $totalAwardsRevenue, 2),
+                    'events_revenue' => round($totalEventsRevenue, 2),
+                    'awards_revenue' => round($totalAwardsRevenue, 2),
+                    'pending_payouts' => $payouts->where('status', 'pending')->count(),
+                    'completed_payouts' => $payouts->where('status', 'completed')->count(),
+                ];
+
+            } elseif ($user->role === 'attendee' && $user->attendee) {
+                // ===== ATTENDEE DATA =====
+                $attendee = $user->attendee;
+                
+                $roleData['attendee'] = [
+                    'id' => $attendee->id,
+                    'date_of_birth' => $attendee->date_of_birth,
+                    'gender' => $attendee->gender,
+                    'interests' => $attendee->interests,
+                    'created_at' => $attendee->created_at,
+                ];
+
+                // Get all orders
+                $orders = Order::where('customer_email', $user->email)
+                    ->with(['items.event', 'items.ticketType'])
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($order) {
+                        return [
+                            'id' => $order->id,
+                            'order_number' => $order->order_number,
+                            'status' => $order->status,
+                            'total_amount' => (float) $order->total_amount,
+                            'payment_method' => $order->payment_method,
+                            'items_count' => $order->items->count(),
+                            'events' => $order->items->map(fn($i) => $i->event->title ?? 'Unknown')->unique()->values()->toArray(),
+                            'created_at' => $order->created_at,
+                        ];
+                    });
+
+                $roleData['orders'] = $orders;
+
+                // Get all tickets
+                $tickets = Ticket::whereHas('order', function ($q) use ($user) {
+                        $q->where('customer_email', $user->email);
+                    })
+                    ->with(['event', 'ticketType'])
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($ticket) {
+                        return [
+                            'id' => $ticket->id,
+                            'ticket_code' => $ticket->ticket_code,
+                            'status' => $ticket->status,
+                            'event_title' => $ticket->event->title ?? 'Unknown Event',
+                            'event_date' => $ticket->event->start_time ?? null,
+                            'ticket_type' => $ticket->ticketType->name ?? 'Standard',
+                            'price' => (float) ($ticket->ticketType->price ?? 0),
+                            'checked_in_at' => $ticket->checked_in_at,
+                            'created_at' => $ticket->created_at,
+                        ];
+                    });
+
+                $roleData['tickets'] = $tickets;
+
+                // Get vote purchases
+                $votes = AwardVote::where('voter_email', $user->email)
+                    ->where('status', 'paid')
+                    ->with(['award', 'nominee', 'category'])
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($vote) {
+                        return [
+                            'id' => $vote->id,
+                            'award_title' => $vote->award->title ?? 'Unknown Award',
+                            'nominee_name' => $vote->nominee->name ?? 'Unknown',
+                            'category_name' => $vote->category->name ?? 'Unknown',
+                            'number_of_votes' => $vote->number_of_votes,
+                            'amount' => (float) $vote->gross_amount,
+                            'created_at' => $vote->created_at,
+                        ];
+                    });
+
+                $roleData['votes'] = $votes;
+
+                // Calculate stats
+                $stats = [
+                    'total_orders' => $orders->count(),
+                    'completed_orders' => $orders->where('status', 'paid')->count(),
+                    'total_tickets' => $tickets->count(),
+                    'used_tickets' => $tickets->where('status', 'used')->count(),
+                    'active_tickets' => $tickets->where('status', 'active')->count(),
+                    'total_spent' => round($orders->where('status', 'paid')->sum('total_amount'), 2),
+                    'total_votes_purchased' => $votes->sum('number_of_votes'),
+                    'vote_purchases_amount' => round($votes->sum('amount'), 2),
+                    'events_attended' => $tickets->pluck('event_title')->unique()->count(),
+                ];
+
+            } else {
+                // For admin, support, or other roles
+                $stats = [
+                    'role' => $user->role,
+                    'account_age_days' => $user->created_at ? Carbon::parse($user->created_at)->diffInDays(Carbon::now()) : 0,
+                ];
+            }
+
+            return ResponseHelper::success($response, 'User details fetched successfully', [
+                'user' => $userData,
+                'role_data' => $roleData,
+                'stats' => $stats,
+            ]);
         } catch (Exception $e) {
-            return ResponseHelper::error($response, 'Failed to fetch user', 500, $e->getMessage());
+            return ResponseHelper::error($response, 'Failed to fetch user details', 500, $e->getMessage());
+        }
+    }
+
+    // ===================================================================
+    // FINANCE OVERVIEW
+    // ===================================================================
+
+    /**
+     * Get comprehensive finance overview for admin dashboard
+     * GET /v1/admin/finance
+     */
+    public function getFinanceOverview(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            if ($jwtUser->role !== 'admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $now = Carbon::now();
+            $startOfMonth = $now->copy()->startOfMonth();
+            $startOfLastMonth = $now->copy()->subMonth()->startOfMonth();
+            $endOfLastMonth = $now->copy()->subMonth()->endOfMonth();
+            $startOfYear = $now->copy()->startOfYear();
+
+            // ===== OVERALL REVENUE SUMMARY =====
+            
+            // Ticket Revenue (from paid orders)
+            $ticketRevenue = (float) OrderItem::whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })->sum('total_price');
+
+            $ticketAdminFees = (float) OrderItem::whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })->sum('admin_amount');
+
+            $ticketOrganizerShare = (float) OrderItem::whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })->sum('organizer_amount');
+
+            // Voting Revenue (from paid votes)
+            $voteRevenue = (float) AwardVote::where('status', 'paid')->sum('gross_amount');
+            $voteAdminFees = (float) AwardVote::where('status', 'paid')->sum('admin_amount');
+            $voteOrganizerShare = (float) AwardVote::where('status', 'paid')->sum('organizer_amount');
+
+            $totalGrossRevenue = $ticketRevenue + $voteRevenue;
+            $totalPlatformFees = $ticketAdminFees + $voteAdminFees;
+            $totalOrganizerShare = $ticketOrganizerShare + $voteOrganizerShare;
+
+            // ===== THIS MONTH REVENUE =====
+            $thisMonthTicketRevenue = (float) OrderItem::whereHas('order', function ($query) use ($startOfMonth) {
+                $query->where('status', 'paid')->where('paid_at', '>=', $startOfMonth);
+            })->sum('total_price');
+
+            $thisMonthVoteRevenue = (float) AwardVote::where('status', 'paid')
+                ->where('created_at', '>=', $startOfMonth)
+                ->sum('gross_amount');
+
+            $thisMonthRevenue = $thisMonthTicketRevenue + $thisMonthVoteRevenue;
+
+            $thisMonthPlatformFees = (float) OrderItem::whereHas('order', function ($query) use ($startOfMonth) {
+                $query->where('status', 'paid')->where('paid_at', '>=', $startOfMonth);
+            })->sum('admin_amount') + (float) AwardVote::where('status', 'paid')
+                ->where('created_at', '>=', $startOfMonth)
+                ->sum('admin_amount');
+
+            // ===== LAST MONTH REVENUE (for comparison) =====
+            $lastMonthTicketRevenue = (float) OrderItem::whereHas('order', function ($query) use ($startOfLastMonth, $endOfLastMonth) {
+                $query->where('status', 'paid')->whereBetween('paid_at', [$startOfLastMonth, $endOfLastMonth]);
+            })->sum('total_price');
+
+            $lastMonthVoteRevenue = (float) AwardVote::where('status', 'paid')
+                ->whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])
+                ->sum('gross_amount');
+
+            $lastMonthRevenue = $lastMonthTicketRevenue + $lastMonthVoteRevenue;
+            $monthlyGrowth = $lastMonthRevenue > 0 
+                ? round((($thisMonthRevenue - $lastMonthRevenue) / $lastMonthRevenue) * 100, 1)
+                : 0;
+
+            // ===== MONTHLY REVENUE TREND (Last 6 months) =====
+            $monthlyTrend = [];
+            for ($i = 5; $i >= 0; $i--) {
+                $monthStart = $now->copy()->subMonths($i)->startOfMonth();
+                $monthEnd = $now->copy()->subMonths($i)->endOfMonth();
+                $monthName = $monthStart->format('M Y');
+
+                $monthTicketRevenue = (float) OrderItem::whereHas('order', function ($query) use ($monthStart, $monthEnd) {
+                    $query->where('status', 'paid')->whereBetween('paid_at', [$monthStart, $monthEnd]);
+                })->sum('total_price');
+
+                $monthVoteRevenue = (float) AwardVote::where('status', 'paid')
+                    ->whereBetween('created_at', [$monthStart, $monthEnd])
+                    ->sum('gross_amount');
+
+                $monthPlatformFees = (float) OrderItem::whereHas('order', function ($query) use ($monthStart, $monthEnd) {
+                    $query->where('status', 'paid')->whereBetween('paid_at', [$monthStart, $monthEnd]);
+                })->sum('admin_amount') + (float) AwardVote::where('status', 'paid')
+                    ->whereBetween('created_at', [$monthStart, $monthEnd])
+                    ->sum('admin_amount');
+
+                $monthlyTrend[] = [
+                    'month' => $monthName,
+                    'ticket_revenue' => round($monthTicketRevenue, 2),
+                    'vote_revenue' => round($monthVoteRevenue, 2),
+                    'total_revenue' => round($monthTicketRevenue + $monthVoteRevenue, 2),
+                    'platform_fees' => round($monthPlatformFees, 2),
+                ];
+            }
+
+            // ===== TRANSACTION COUNTS =====
+            $totalOrders = Order::where('status', 'paid')->count();
+            $totalTicketsSold = Ticket::whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })->count();
+            $totalVotes = (int) AwardVote::where('status', 'paid')->sum('number_of_votes');
+            $totalVoteTransactions = AwardVote::where('status', 'paid')->count();
+
+            // ===== TOP PERFORMING EVENTS (by revenue) =====
+            $topEvents = Event::select('events.id', 'events.title')
+                ->leftJoin('order_items', 'events.id', '=', 'order_items.event_id')
+                ->leftJoin('orders', 'order_items.order_id', '=', 'orders.id')
+                ->where('orders.status', 'paid')
+                ->groupBy('events.id', 'events.title')
+                ->selectRaw('SUM(order_items.total_price) as total_revenue')
+                ->selectRaw('SUM(order_items.admin_amount) as platform_fees')
+                ->selectRaw('COUNT(DISTINCT orders.id) as orders_count')
+                ->orderByDesc('total_revenue')
+                ->limit(5)
+                ->get()
+                ->map(function ($event) {
+                    return [
+                        'id' => $event->id,
+                        'title' => $event->title,
+                        'total_revenue' => round((float) $event->total_revenue, 2),
+                        'platform_fees' => round((float) $event->platform_fees, 2),
+                        'orders_count' => (int) $event->orders_count,
+                    ];
+                });
+
+            // ===== TOP PERFORMING AWARDS (by revenue) =====
+            $topAwards = Award::select('awards.id', 'awards.title')
+                ->leftJoin('award_votes', 'awards.id', '=', 'award_votes.award_id')
+                ->where('award_votes.status', 'paid')
+                ->groupBy('awards.id', 'awards.title')
+                ->selectRaw('SUM(award_votes.gross_amount) as total_revenue')
+                ->selectRaw('SUM(award_votes.admin_amount) as platform_fees')
+                ->selectRaw('SUM(award_votes.number_of_votes) as total_votes')
+                ->orderByDesc('total_revenue')
+                ->limit(5)
+                ->get()
+                ->map(function ($award) {
+                    return [
+                        'id' => $award->id,
+                        'title' => $award->title,
+                        'total_revenue' => round((float) $award->total_revenue, 2),
+                        'platform_fees' => round((float) $award->platform_fees, 2),
+                        'total_votes' => (int) $award->total_votes,
+                    ];
+                });
+
+            // ===== ORGANIZER BALANCES SUMMARY =====
+            $totalPendingBalance = (float) \App\Models\OrganizerBalance::sum('pending_balance');
+            $totalAvailableBalance = (float) \App\Models\OrganizerBalance::sum('available_balance');
+            $totalWithdrawn = (float) \App\Models\OrganizerBalance::sum('total_withdrawn');
+
+            // ===== PAYOUT SUMMARY =====
+            $pendingPayouts = \App\Models\PayoutRequest::where('status', 'pending')->count();
+            $pendingPayoutAmount = (float) \App\Models\PayoutRequest::where('status', 'pending')->sum('amount');
+            $processingPayouts = \App\Models\PayoutRequest::where('status', 'processing')->count();
+            $processingPayoutAmount = (float) \App\Models\PayoutRequest::where('status', 'processing')->sum('amount');
+            $completedPayouts = \App\Models\PayoutRequest::where('status', 'completed')->count();
+            $completedPayoutAmount = (float) \App\Models\PayoutRequest::where('status', 'completed')->sum('amount');
+
+            // ===== RECENT TRANSACTIONS (last 10) =====
+            $recentOrders = Order::where('status', 'paid')
+                ->with(['user'])
+                ->orderBy('paid_at', 'desc')
+                ->limit(5)
+                ->get()
+                ->map(function ($order) {
+                    return [
+                        'id' => $order->id,
+                        'type' => 'ticket_sale',
+                        'reference' => $order->payment_reference,
+                        'amount' => (float) $order->total_amount,
+                        'customer_name' => $order->customer_name ?? ($order->user->name ?? 'Guest'),
+                        'date' => $order->paid_at ? $order->paid_at->toIso8601String() : $order->created_at->toIso8601String(),
+                    ];
+                });
+
+            $recentVotes = AwardVote::where('status', 'paid')
+                ->with(['award'])
+                ->orderBy('created_at', 'desc')
+                ->limit(5)
+                ->get()
+                ->map(function ($vote) {
+                    return [
+                        'id' => $vote->id,
+                        'type' => 'vote_purchase',
+                        'reference' => $vote->reference,
+                        'amount' => (float) $vote->gross_amount,
+                        'customer_name' => $vote->voter_name ?? $vote->voter_email ?? 'Anonymous',
+                        'award_title' => $vote->award->title ?? 'N/A',
+                        'votes' => (int) $vote->number_of_votes,
+                        'date' => $vote->created_at->toIso8601String(),
+                    ];
+                });
+
+            $data = [
+                'summary' => [
+                    'total_gross_revenue' => round($totalGrossRevenue, 2),
+                    'total_platform_fees' => round($totalPlatformFees, 2),
+                    'total_organizer_share' => round($totalOrganizerShare, 2),
+                    'this_month_revenue' => round($thisMonthRevenue, 2),
+                    'this_month_platform_fees' => round($thisMonthPlatformFees, 2),
+                    'last_month_revenue' => round($lastMonthRevenue, 2),
+                    'monthly_growth_percent' => $monthlyGrowth,
+                ],
+                'revenue_breakdown' => [
+                    'tickets' => [
+                        'gross_revenue' => round($ticketRevenue, 2),
+                        'platform_fees' => round($ticketAdminFees, 2),
+                        'organizer_share' => round($ticketOrganizerShare, 2),
+                        'percentage' => $totalGrossRevenue > 0 ? round(($ticketRevenue / $totalGrossRevenue) * 100, 1) : 0,
+                    ],
+                    'votes' => [
+                        'gross_revenue' => round($voteRevenue, 2),
+                        'platform_fees' => round($voteAdminFees, 2),
+                        'organizer_share' => round($voteOrganizerShare, 2),
+                        'percentage' => $totalGrossRevenue > 0 ? round(($voteRevenue / $totalGrossRevenue) * 100, 1) : 0,
+                    ],
+                ],
+                'transactions' => [
+                    'total_orders' => $totalOrders,
+                    'total_tickets_sold' => $totalTicketsSold,
+                    'total_votes' => $totalVotes,
+                    'total_vote_transactions' => $totalVoteTransactions,
+                ],
+                'monthly_trend' => $monthlyTrend,
+                'top_events' => $topEvents,
+                'top_awards' => $topAwards,
+                'organizer_balances' => [
+                    'total_pending' => round($totalPendingBalance, 2),
+                    'total_available' => round($totalAvailableBalance, 2),
+                    'total_withdrawn' => round($totalWithdrawn, 2),
+                ],
+                'payouts' => [
+                    'pending_count' => $pendingPayouts,
+                    'pending_amount' => round($pendingPayoutAmount, 2),
+                    'processing_count' => $processingPayouts,
+                    'processing_amount' => round($processingPayoutAmount, 2),
+                    'completed_count' => $completedPayouts,
+                    'completed_amount' => round($completedPayoutAmount, 2),
+                ],
+                'recent_transactions' => [
+                    'orders' => $recentOrders,
+                    'votes' => $recentVotes,
+                ],
+            ];
+
+            return ResponseHelper::success($response, 'Finance overview fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch finance overview', 500, $e->getMessage());
         }
     }
 }
