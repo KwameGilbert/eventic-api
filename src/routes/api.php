@@ -41,6 +41,9 @@ return function ($app): void {
         '/v1/nominees' => ROUTE . 'v1/AwardNomineeRoute.php',
         '/v1/votes' => ROUTE . 'v1/AwardVoteRoute.php',
 
+        // Utils
+        '/v1/utils' => ROUTE . 'v1/UtilsRoute.php',
+
         // Admin (specific routes first)
         '/v1/admin/payouts' => ROUTE . 'v1/PayoutRoute.php',
         '/v1/admin' => ROUTE . 'v1/AdminRoute.php',

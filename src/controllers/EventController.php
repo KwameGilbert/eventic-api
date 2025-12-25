@@ -763,4 +763,81 @@ class EventController
             return ResponseHelper::error($response, 'Failed to submit event for approval', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Convert image URL to base64 (bypasses CORS)
+     * GET /v1/utils/image-to-base64
+     */
+    public function imageToBase64(Request $request, Response $response): Response
+    {
+        try {
+            $queryParams = $request->getQueryParams();
+            $imageUrl = $queryParams['url'] ?? null;
+
+            if (empty($imageUrl)) {
+                return ResponseHelper::error($response, 'Image URL is required', 400);
+            }
+
+            // Validate URL
+            if (!filter_var($imageUrl, FILTER_VALIDATE_URL)) {
+                return ResponseHelper::error($response, 'Invalid URL format', 400);
+            }
+
+            // Only allow URLs from our own domain for security
+            $allowedDomains = ['app.eventic.com', 'eventic.com', 'localhost', '127.0.0.1'];
+            $parsedUrl = parse_url($imageUrl);
+            $host = $parsedUrl['host'] ?? '';
+            
+            $isAllowed = false;
+            foreach ($allowedDomains as $domain) {
+                if (strpos($host, $domain) !== false) {
+                    $isAllowed = true;
+                    break;
+                }
+            }
+
+            if (!$isAllowed) {
+                return ResponseHelper::error($response, 'Image URL must be from an allowed domain', 403);
+            }
+
+            // Fetch the image
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $imageUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'Eventic/1.0');
+            
+            $imageData = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            if ($error || $httpCode !== 200 || empty($imageData)) {
+                return ResponseHelper::error($response, 'Failed to fetch image', 500, $error ?: 'HTTP ' . $httpCode);
+            }
+
+            // Validate content type
+            $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            $mimeType = explode(';', $contentType)[0];
+            
+            if (!in_array($mimeType, $allowedTypes)) {
+                return ResponseHelper::error($response, 'Invalid image type: ' . $mimeType, 400);
+            }
+
+            // Convert to base64
+            $base64 = base64_encode($imageData);
+            $dataUri = 'data:' . $mimeType . ';base64,' . $base64;
+
+            return ResponseHelper::success($response, 'Image converted successfully', [
+                'base64' => $dataUri,
+                'mime_type' => $mimeType,
+                'size' => strlen($imageData)
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to convert image', 500, $e->getMessage());
+        }
+    }
 }
