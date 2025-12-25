@@ -1831,4 +1831,315 @@ class AdminController
             return ResponseHelper::error($response, 'Failed to fetch finance overview', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Get comprehensive analytics data for admin dashboard
+     * GET /v1/admin/analytics
+     */
+    public function getAnalytics(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Verify admin role
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            // Get date range from query params (default: last 30 days)
+            $params = $request->getQueryParams();
+            $period = $params['period'] ?? '30days';
+            
+            $startDate = match ($period) {
+                '7days' => Carbon::now()->subDays(7)->startOfDay(),
+                '30days' => Carbon::now()->subDays(30)->startOfDay(),
+                '90days' => Carbon::now()->subDays(90)->startOfDay(),
+                '12months' => Carbon::now()->subMonths(12)->startOfDay(),
+                'all' => Carbon::createFromDate(2020, 1, 1),
+                default => Carbon::now()->subDays(30)->startOfDay(),
+            };
+            $endDate = Carbon::now()->endOfDay();
+
+            // Previous period for comparison
+            $periodDays = $startDate->diffInDays($endDate);
+            $prevStartDate = $startDate->copy()->subDays($periodDays);
+            $prevEndDate = $startDate->copy()->subSecond();
+
+            // ==================== USER ANALYTICS ====================
+            
+            // Current period users
+            $newUsers = User::whereBetween('created_at', [$startDate, $endDate])->count();
+            $prevNewUsers = User::whereBetween('created_at', [$prevStartDate, $prevEndDate])->count();
+            $userGrowth = $prevNewUsers > 0 ? round((($newUsers - $prevNewUsers) / $prevNewUsers) * 100, 1) : ($newUsers > 0 ? 100 : 0);
+
+            // User breakdown by role
+            $usersByRole = User::selectRaw('role, COUNT(*) as count')
+                ->groupBy('role')
+                ->pluck('count', 'role')
+                ->toArray();
+
+            // Daily user registrations
+            $dailyUsers = User::whereBetween('created_at', [$startDate, $endDate])
+                ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+                ->groupBy('date')
+                ->orderBy('date')
+                ->get()
+                ->map(fn ($item) => ['date' => $item->date, 'count' => $item->count]);
+
+            // Active users (users who logged in during period)
+            $activeUsers = User::whereBetween('last_login_at', [$startDate, $endDate])->count();
+
+            // ==================== EVENT ANALYTICS ====================
+            
+            // Current period events
+            $newEvents = Event::whereBetween('created_at', [$startDate, $endDate])->count();
+            $prevNewEvents = Event::whereBetween('created_at', [$prevStartDate, $prevEndDate])->count();
+            $eventGrowth = $prevNewEvents > 0 ? round((($newEvents - $prevNewEvents) / $prevNewEvents) * 100, 1) : ($newEvents > 0 ? 100 : 0);
+
+            // Events by status
+            $eventsByStatus = Event::selectRaw('status, COUNT(*) as count')
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            // Top performing events by revenue
+            $topEvents = Event::select('events.id', 'events.title', 'events.start_time', 'events.banner_image')
+                ->withCount('tickets')
+                ->leftJoin('order_items', 'events.id', '=', 'order_items.event_id')
+                ->leftJoin('orders', function ($join) {
+                    $join->on('order_items.order_id', '=', 'orders.id')
+                        ->where('orders.status', '=', 'paid');
+                })
+                ->selectRaw('COALESCE(SUM(order_items.total_price), 0) as revenue')
+                ->groupBy('events.id', 'events.title', 'events.start_time', 'events.banner_image')
+                ->orderByDesc('revenue')
+                ->limit(10)
+                ->get()
+                ->map(fn ($e) => [
+                    'id' => $e->id,
+                    'title' => $e->title,
+                    'date' => $e->start_time,
+                    'banner_image' => $e->banner_image,
+                    'tickets_sold' => $e->tickets_count ?? 0,
+                    'revenue' => round((float) $e->revenue, 2),
+                ]);
+
+            // Events by category/type
+            $eventsByType = Event::with('eventType')
+                ->selectRaw('event_type_id, COUNT(*) as count')
+                ->whereNotNull('event_type_id')
+                ->groupBy('event_type_id')
+                ->get()
+                ->map(fn ($e) => [
+                    'type' => $e->eventType->name ?? 'Other',
+                    'count' => $e->count,
+                ]);
+
+            // ==================== AWARD ANALYTICS ====================
+            
+            // Current period awards
+            $newAwards = Award::whereBetween('created_at', [$startDate, $endDate])->count();
+            $prevNewAwards = Award::whereBetween('created_at', [$prevStartDate, $prevEndDate])->count();
+            $awardGrowth = $prevNewAwards > 0 ? round((($newAwards - $prevNewAwards) / $prevNewAwards) * 100, 1) : ($newAwards > 0 ? 100 : 0);
+
+            // Awards by status
+            $awardsByStatus = Award::selectRaw('status, COUNT(*) as count')
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            // Top performing awards by votes
+            $topAwards = Award::select('awards.id', 'awards.title', 'awards.ceremony_date', 'awards.banner_image')
+                ->leftJoin('award_votes', function ($join) {
+                    $join->on('awards.id', '=', 'award_votes.award_id')
+                        ->where('award_votes.status', '=', 'paid');
+                })
+                ->selectRaw('COALESCE(SUM(award_votes.number_of_votes), 0) as total_votes')
+                ->selectRaw('COALESCE(SUM(award_votes.gross_amount), 0) as revenue')
+                ->groupBy('awards.id', 'awards.title', 'awards.ceremony_date', 'awards.banner_image')
+                ->orderByDesc('total_votes')
+                ->limit(10)
+                ->get()
+                ->map(fn ($a) => [
+                    'id' => $a->id,
+                    'title' => $a->title,
+                    'date' => $a->ceremony_date,
+                    'banner_image' => $a->banner_image,
+                    'total_votes' => (int) $a->total_votes,
+                    'revenue' => round((float) $a->revenue, 2),
+                ]);
+
+            // ==================== REVENUE ANALYTICS ====================
+            
+            // Current period revenue
+            $ticketRevenue = (float) OrderItem::whereHas('order', function ($q) use ($startDate, $endDate) {
+                $q->where('status', 'paid')->whereBetween('created_at', [$startDate, $endDate]);
+            })->sum('total_price');
+
+            $voteRevenue = (float) AwardVote::where('status', 'paid')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->sum('gross_amount');
+
+            $totalRevenue = $ticketRevenue + $voteRevenue;
+
+            // Previous period revenue
+            $prevTicketRevenue = (float) OrderItem::whereHas('order', function ($q) use ($prevStartDate, $prevEndDate) {
+                $q->where('status', 'paid')->whereBetween('created_at', [$prevStartDate, $prevEndDate]);
+            })->sum('total_price');
+
+            $prevVoteRevenue = (float) AwardVote::where('status', 'paid')
+                ->whereBetween('created_at', [$prevStartDate, $prevEndDate])
+                ->sum('gross_amount');
+
+            $prevTotalRevenue = $prevTicketRevenue + $prevVoteRevenue;
+            $revenueGrowth = $prevTotalRevenue > 0 ? round((($totalRevenue - $prevTotalRevenue) / $prevTotalRevenue) * 100, 1) : ($totalRevenue > 0 ? 100 : 0);
+
+            // Daily revenue trend
+            $dailyRevenue = collect();
+            $currentDate = $startDate->copy();
+            while ($currentDate <= $endDate) {
+                $dayEnd = $currentDate->copy()->endOfDay();
+                
+                $dayTicketRevenue = (float) OrderItem::whereHas('order', function ($q) use ($currentDate, $dayEnd) {
+                    $q->where('status', 'paid')->whereBetween('created_at', [$currentDate, $dayEnd]);
+                })->sum('total_price');
+
+                $dayVoteRevenue = (float) AwardVote::where('status', 'paid')
+                    ->whereBetween('created_at', [$currentDate, $dayEnd])
+                    ->sum('gross_amount');
+
+                $dailyRevenue->push([
+                    'date' => $currentDate->format('Y-m-d'),
+                    'tickets' => round($dayTicketRevenue, 2),
+                    'votes' => round($dayVoteRevenue, 2),
+                    'total' => round($dayTicketRevenue + $dayVoteRevenue, 2),
+                ]);
+
+                $currentDate->addDay()->startOfDay();
+            }
+
+            // ==================== TRANSACTION ANALYTICS ====================
+            
+            $totalOrders = Order::where('status', 'paid')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+            $prevOrders = Order::where('status', 'paid')
+                ->whereBetween('created_at', [$prevStartDate, $prevEndDate])
+                ->count();
+            $ordersGrowth = $prevOrders > 0 ? round((($totalOrders - $prevOrders) / $prevOrders) * 100, 1) : ($totalOrders > 0 ? 100 : 0);
+
+            $totalTicketsSold = Ticket::whereBetween('created_at', [$startDate, $endDate])->count();
+            $totalVotes = AwardVote::where('status', 'paid')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->sum('number_of_votes');
+
+            // Average order value
+            $avgOrderValue = $totalOrders > 0 ? round($ticketRevenue / $totalOrders, 2) : 0;
+
+            // ==================== GEOGRAPHIC ANALYTICS ====================
+            
+            // Events by location (city)
+            $eventsByCity = Event::selectRaw('city, COUNT(*) as count')
+                ->whereNotNull('city')
+                ->where('city', '!=', '')
+                ->groupBy('city')
+                ->orderByDesc('count')
+                ->limit(10)
+                ->get()
+                ->map(fn ($e) => ['city' => $e->city, 'count' => $e->count]);
+
+            // Top organizers by revenue
+            $topOrganizers = Organizer::select('organizers.id', 'organizers.organization_name', 'organizers.profile_image')
+                ->join('events', 'organizers.id', '=', 'events.organizer_id')
+                ->leftJoin('order_items', 'events.id', '=', 'order_items.event_id')
+                ->leftJoin('orders', function ($join) {
+                    $join->on('order_items.order_id', '=', 'orders.id')
+                        ->where('orders.status', '=', 'paid');
+                })
+                ->selectRaw('COALESCE(SUM(order_items.total_price), 0) as revenue')
+                ->selectRaw('COUNT(DISTINCT events.id) as events_count')
+                ->groupBy('organizers.id', 'organizers.organization_name', 'organizers.profile_image')
+                ->orderByDesc('revenue')
+                ->limit(10)
+                ->get()
+                ->map(fn ($o) => [
+                    'id' => $o->id,
+                    'name' => $o->organization_name,
+                    'logo' => $o->profile_image,
+                    'events_count' => $o->events_count,
+                    'revenue' => round((float) $o->revenue, 2),
+                ]);
+
+            // ==================== ENGAGEMENT ANALYTICS ====================
+            
+            // Conversion rates
+            $pendingOrders = Order::where('status', 'pending')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+            $conversionRate = ($totalOrders + $pendingOrders) > 0 
+                ? round(($totalOrders / ($totalOrders + $pendingOrders)) * 100, 1) 
+                : 0;
+
+            // ==================== BUILD RESPONSE ====================
+            
+            $data = [
+                'period' => [
+                    'type' => $period,
+                    'start' => $startDate->toISOString(),
+                    'end' => $endDate->toISOString(),
+                    'days' => $periodDays,
+                ],
+                'overview' => [
+                    'total_users' => User::count(),
+                    'total_events' => Event::count(),
+                    'total_awards' => Award::count(),
+                    'total_organizers' => Organizer::count(),
+                ],
+                'users' => [
+                    'new_users' => $newUsers,
+                    'growth' => $userGrowth,
+                    'active_users' => $activeUsers,
+                    'by_role' => $usersByRole,
+                    'daily' => $dailyUsers,
+                ],
+                'events' => [
+                    'new_events' => $newEvents,
+                    'growth' => $eventGrowth,
+                    'by_status' => $eventsByStatus,
+                    'by_type' => $eventsByType,
+                    'top_performing' => $topEvents,
+                ],
+                'awards' => [
+                    'new_awards' => $newAwards,
+                    'growth' => $awardGrowth,
+                    'by_status' => $awardsByStatus,
+                    'top_performing' => $topAwards,
+                ],
+                'revenue' => [
+                    'total' => round($totalRevenue, 2),
+                    'growth' => $revenueGrowth,
+                    'tickets' => round($ticketRevenue, 2),
+                    'votes' => round($voteRevenue, 2),
+                    'daily_trend' => $dailyRevenue,
+                ],
+                'transactions' => [
+                    'total_orders' => $totalOrders,
+                    'orders_growth' => $ordersGrowth,
+                    'tickets_sold' => $totalTicketsSold,
+                    'votes_cast' => (int) $totalVotes,
+                    'avg_order_value' => $avgOrderValue,
+                    'conversion_rate' => $conversionRate,
+                ],
+                'geographic' => [
+                    'events_by_city' => $eventsByCity,
+                ],
+                'top_organizers' => $topOrganizers,
+            ];
+
+            return ResponseHelper::success($response, 'Analytics data fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch analytics data', 500, $e->getMessage());
+        }
+    }
 }
+

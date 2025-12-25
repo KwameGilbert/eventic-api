@@ -54,6 +54,9 @@ return function (App $app): void {
         // Finance Overview
         $group->get('/finance', [$adminController, 'getFinanceOverview']);
 
+        // Analytics
+        $group->get('/analytics', [$adminController, 'getAnalytics']);
+
         // Note: Payout management routes (/payouts/*) are in PayoutRoute.php
     })->add($authMiddleware);
 };
