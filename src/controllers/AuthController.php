@@ -346,6 +346,15 @@ class AuthController
                 $this->authService->revokeAllUserTokens($user->id);
             }
 
+            // Send password changed confirmation email
+            try {
+                $emailService = new EmailService();
+                $emailService->sendPasswordChangedEmail($user);
+            } catch (Exception $e) {
+                // Log but don't fail - notification email is not critical
+                error_log('Failed to send password changed email: ' . $e->getMessage());
+            }
+
             return ResponseHelper::success($response, 'Password changed successfully', [], 200);
 
         } catch (Exception $e) {

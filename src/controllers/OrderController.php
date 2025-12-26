@@ -464,9 +464,27 @@ class OrderController
             }
 
             DB::commit();
+            error_log('=== ORDER PAYMENT PROCESSED - SENDING EMAIL ===');
+            error_log('Order ID: ' . $order->id);
 
-            // TODO: Send confirmation email
-            // $this->sendConfirmationEmail($order);
+            // Send confirmation email with tickets
+            try {
+                error_log('Creating EmailService...');
+                $emailService = new \App\Services\EmailService();
+                
+                // Reload order with items for email
+                error_log('Loading order relationships...');
+                $order->load(['items.event', 'items.ticketType', 'tickets']);
+                error_log('Items loaded: ' . $order->items->count());
+                
+                error_log('Calling sendTicketConfirmationEmail...');
+                $result = $emailService->sendTicketConfirmationEmail($order);
+                error_log('Email send result: ' . ($result ? 'SUCCESS' : 'FAILED'));
+            } catch (\Exception $e) {
+                // Log but don't fail - email is not critical
+                error_log('Failed to send ticket confirmation email: ' . $e->getMessage());
+                error_log('Exception trace: ' . $e->getTraceAsString());
+            }
 
         } catch (Exception $e) {
             DB::rollBack();

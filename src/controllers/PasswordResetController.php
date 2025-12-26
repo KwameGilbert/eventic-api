@@ -137,6 +137,14 @@ class PasswordResetController
             // Revoke all refresh tokens (force re-login on all devices for security)
             $this->authService->revokeAllUserTokens($user->id);
 
+            // Send password changed confirmation email
+            try {
+                $this->emailService->sendPasswordChangedEmail($user);
+            } catch (Exception $e) {
+                // Log but don't fail - notification email is not critical
+                error_log('Failed to send password changed email: ' . $e->getMessage());
+            }
+
             return ResponseHelper::success($response, 'Password reset successful. Please login with your new password.', []);
 
         } catch (Exception $e) {

@@ -63,6 +63,18 @@ Plus a shared base template:
 | `{{user_email}}` | User's email address |
 | `{{timestamp}}` | Date and time of password change |
 
+#### Ticket Confirmation (`ticket_confirmation`)
+| Placeholder | Description |
+|------------|-------------|
+| `{{user_name}}` | Customer's full name |
+| `{{user_email}}` | Customer's email address |
+| `{{order_reference}}` | Order/payment reference |
+| `{{total_amount}}` | Total amount paid (formatted) |
+| `{{currency}}` | Currency code (e.g., GHS) |
+| `{{total_tickets}}` | Total number of tickets |
+| `{{tickets_list}}` | HTML block of ticket details (auto-generated) |
+| `{{tickets_url}}` | Link to view tickets in app |
+
 ## Adding New Templates
 
 1. Create a JSON config file: `templates/email/new_template.json`
@@ -93,6 +105,7 @@ MAIL_FROM_ADDRESS=noreply@eventic.com
 SOCIAL_FACEBOOK=https://facebook.com/eventic
 SOCIAL_TWITTER=https://twitter.com/eventic
 SOCIAL_INSTAGRAM=https://instagram.com/eventic
+CURRENCY=GHS
 ```
 
 ## File List
@@ -108,3 +121,6 @@ SOCIAL_INSTAGRAM=https://instagram.com/eventic
 | `password_reset.html` | Password reset content |
 | `password_changed.json` | Password changed metadata |
 | `password_changed.html` | Password changed content |
+| `ticket_confirmation.json` | Ticket confirmation metadata |
+| `ticket_confirmation.html` | Ticket confirmation content |
+

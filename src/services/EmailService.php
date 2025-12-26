@@ -371,4 +371,171 @@ class EmailService
             return false;
         }
     }
+
+    /**
+     * Send ticket confirmation email after successful payment
+     * 
+     * @param \App\Models\Order $order The order with tickets
+     * @param array $tickets Array of ticket details
+     * @return bool
+     */
+    public function sendTicketConfirmationEmail($order, array $tickets = []): bool
+    {
+        try {
+            error_log('=== SENDING TICKET CONFIRMATION EMAIL ===');
+            error_log('Order ID: ' . $order->id);
+            error_log('Order User ID: ' . $order->user_id);
+            error_log('Customer Email: ' . ($order->customer_email ?? 'NULL'));
+            
+            // Get user
+            $user = \App\Models\User::find($order->user_id);
+            if (!$user) {
+                error_log('Ticket confirmation email: User not found for order ' . $order->id);
+                return false;
+            }
+            error_log('User found: ' . $user->email);
+
+            // Make sure order items are loaded
+            if (!$order->relationLoaded('items')) {
+                error_log('Loading order items...');
+                $order->load(['items.event', 'items.ticketType']);
+            }
+            
+            error_log('Order items count: ' . $order->items->count());
+
+            // Build tickets list HTML
+            $ticketsListHtml = $this->buildTicketsListHtml($order, $tickets);
+            error_log('Tickets list HTML length: ' . strlen($ticketsListHtml));
+            
+            // Calculate total tickets
+            $totalTickets = 0;
+            foreach ($order->items as $item) {
+                $totalTickets += $item->quantity;
+            }
+            error_log('Total tickets: ' . $totalTickets);
+
+            // Get currency
+            $currency = $_ENV['CURRENCY'] ?? 'GHS';
+            
+            // Build email
+            $email = $this->buildEmailFromTemplate('ticket_confirmation', [
+                'user_name' => htmlspecialchars($order->customer_name ?? $user->name),
+                'user_email' => htmlspecialchars($order->customer_email ?? $user->email),
+                'order_reference' => $order->payment_reference ?? ('EVT-' . $order->id),
+                'total_amount' => number_format((float)$order->total_amount, 2),
+                'currency' => $currency,
+                'total_tickets' => $totalTickets,
+                'tickets_list' => $ticketsListHtml,
+                'tickets_url' => ($_ENV['FRONTEND_URL'] ?? 'https://eventic.com') . '/my-tickets',
+            ]);
+            
+            if (!$email) {
+                error_log('Failed to build ticket confirmation email template - template returned null');
+                return false;
+            }
+            
+            error_log('Email template built successfully');
+            error_log('Email subject: ' . $email['subject']);
+
+            $recipientEmail = $order->customer_email ?? $user->email;
+            $recipientName = $order->customer_name ?? $user->name;
+            
+            error_log('Sending to: ' . $recipientEmail);
+
+            $this->mailer->clearAddresses();
+            $this->mailer->setFrom($this->fromEmail, $this->fromName);
+            $this->mailer->addAddress($recipientEmail, $recipientName);
+            
+            $this->mailer->isHTML(true);
+            $this->mailer->Subject = $email['subject'];
+            $this->mailer->Body = $email['body'];
+            
+            $this->mailer->send();
+            error_log('=== TICKET CONFIRMATION EMAIL SENT SUCCESSFULLY ===');
+            return true;
+
+        } catch (Exception $e) {
+            error_log('Ticket confirmation email error: ' . $e->getMessage());
+            error_log('Stack trace: ' . $e->getTraceAsString());
+            return false;
+        }
+    }
+
+    /**
+     * Build HTML for tickets list in confirmation email
+     */
+    private function buildTicketsListHtml($order, array $tickets = []): string
+    {
+        $html = '';
+        
+        // Group tickets by event
+        $ticketsByEvent = [];
+        
+        foreach ($order->items as $item) {
+            $event = $item->event;
+            $ticketType = $item->ticketType;
+            
+            if (!$event) continue;
+            
+            $eventId = $event->id;
+            if (!isset($ticketsByEvent[$eventId])) {
+                $ticketsByEvent[$eventId] = [
+                    'event' => $event,
+                    'items' => [],
+                ];
+            }
+            
+            $ticketsByEvent[$eventId]['items'][] = [
+                'type_name' => $ticketType->name ?? 'Standard',
+                'quantity' => $item->quantity,
+                'unit_price' => $item->unit_price,
+            ];
+        }
+
+        // Build HTML for each event
+        foreach ($ticketsByEvent as $eventData) {
+            $event = $eventData['event'];
+            $eventDate = $event->start_date 
+                ? date('l, F j, Y \a\t g:i A', strtotime($event->start_date)) 
+                : 'TBA';
+            
+            $html .= "
+            <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='margin-bottom: 16px; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;'>
+                <tr>
+                    <td style='padding: 16px; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #ffffff;'>
+                        <p style='margin: 0; font-size: 16px; font-weight: 600;'>" . htmlspecialchars($event->title) . "</p>
+                        <p style='margin: 4px 0 0 0; font-size: 13px; opacity: 0.9;'>📅 {$eventDate}</p>
+                        <p style='margin: 4px 0 0 0; font-size: 13px; opacity: 0.9;'>📍 " . htmlspecialchars($event->venue ?? 'Venue TBA') . "</p>
+                    </td>
+                </tr>
+                <tr>
+                    <td style='padding: 16px;'>
+                        <table role='presentation' width='100%' cellpadding='0' cellspacing='0'>";
+            
+            foreach ($eventData['items'] as $item) {
+                $currency = $_ENV['CURRENCY'] ?? 'GHS';
+                $html .= "
+                            <tr>
+                                <td style='padding: 8px 0;'>
+                                    <span style='font-size: 14px; color: #374151;'>🎫 " . htmlspecialchars($item['type_name']) . "</span>
+                                </td>
+                                <td style='padding: 8px 0; text-align: center;'>
+                                    <span style='font-size: 14px; color: #6b7280;'>x " . $item['quantity'] . "</span>
+                                </td>
+                                <td style='padding: 8px 0; text-align: right;'>
+                                    <span style='font-size: 14px; font-weight: 600; color: #111827;'>{$currency} " . number_format($item['unit_price'] * $item['quantity'], 2) . "</span>
+                                </td>
+                            </tr>";
+            }
+            
+            $html .= "
+                        </table>
+                    </td>
+                </tr>
+            </table>";
+        }
+
+        return $html;
+    }
 }
+
