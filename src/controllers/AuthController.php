@@ -506,6 +506,15 @@ class AuthController
                 'user_agent' => $request->getHeaderLine('User-Agent'),
             ]);
 
+            // Send welcome email now that the user is verified
+            try {
+                $emailService = new EmailService();
+                $emailService->sendWelcomeEmail($user);
+            } catch (Exception $e) {
+                // Log but don't fail - welcome email is not critical
+                error_log('Failed to send welcome email: ' . $e->getMessage());
+            }
+
             return ResponseHelper::success($response, 'Email verified successfully', [
                 'email_verified' => true,
                 'email' => $user->email,

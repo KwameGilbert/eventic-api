@@ -11,13 +11,14 @@ use PHPMailer\PHPMailer\Exception;
 /**
  * EmailService
  * 
- * Handles all email sending operations
+ * Handles all email sending operations using external template files
  */
 class EmailService
 {
     private PHPMailer $mailer;
     private string $fromEmail;
     private string $fromName;
+    private string $templatePath;
 
     public function __construct()
     {
@@ -28,6 +29,7 @@ class EmailService
         
         $this->fromEmail = $_ENV['MAIL_FROM_ADDRESS'] ?? 'noreply@eventic.com';
         $this->fromName = $_ENV['MAIL_FROM_NAME'] ?? 'Eventic';
+        $this->templatePath = dirname(__DIR__, 2) . '/templates/email/';
     }
 
     /**
@@ -49,22 +51,154 @@ class EmailService
         }
     }
 
+    // ========================================
+    // TEMPLATE LOADING SYSTEM
+    // ========================================
+
+    /**
+     * Load a template configuration from JSON file
+     */
+    private function loadTemplateConfig(string $templateName): ?array
+    {
+        $jsonPath = $this->templatePath . $templateName . '.json';
+        
+        if (!file_exists($jsonPath)) {
+            error_log("Email template config not found: {$jsonPath}");
+            return null;
+        }
+        
+        $config = json_decode(file_get_contents($jsonPath), true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log("Invalid JSON in email template config: {$jsonPath}");
+            return null;
+        }
+        
+        return $config;
+    }
+
+    /**
+     * Load HTML content from a template file
+     */
+    private function loadTemplateContent(string $filename): ?string
+    {
+        $htmlPath = $this->templatePath . $filename;
+        
+        if (!file_exists($htmlPath)) {
+            error_log("Email template content not found: {$htmlPath}");
+            return null;
+        }
+        
+        return file_get_contents($htmlPath);
+    }
+
+    /**
+     * Load the base template
+     */
+    private function loadBaseTemplate(): string
+    {
+        $basePath = $this->templatePath . 'base.html';
+        
+        if (!file_exists($basePath)) {
+            error_log("Base email template not found: {$basePath}");
+            return '{{content}}'; // Fallback to just content
+        }
+        
+        return file_get_contents($basePath);
+    }
+
+    /**
+     * Replace placeholders in template with actual values
+     */
+    private function replacePlaceholders(string $template, array $variables): string
+    {
+        foreach ($variables as $key => $value) {
+            $template = str_replace('{{' . $key . '}}', (string)$value, $template);
+        }
+        
+        return $template;
+    }
+
+    /**
+     * Get common template variables
+     */
+    private function getCommonVariables(): array
+    {
+        return [
+            'app_url' => $_ENV['FRONTEND_URL'] ?? 'https://eventic.com',
+            'support_email' => $_ENV['MAIL_FROM_ADDRESS'] ?? 'support@eventic.com',
+            'year' => date('Y'),
+            'social_facebook' => $_ENV['SOCIAL_FACEBOOK'] ?? '#',
+            'social_twitter' => $_ENV['SOCIAL_TWITTER'] ?? '#',
+            'social_instagram' => $_ENV['SOCIAL_INSTAGRAM'] ?? '#',
+        ];
+    }
+
+    /**
+     * Build a complete email from template
+     */
+    private function buildEmailFromTemplate(string $templateName, array $variables = []): ?array
+    {
+        // Load template config
+        $config = $this->loadTemplateConfig($templateName);
+        if (!$config) {
+            return null;
+        }
+        
+        // Load content template
+        $contentHtml = $this->loadTemplateContent($config['content_file']);
+        if (!$contentHtml) {
+            return null;
+        }
+        
+        // Merge variables with common ones
+        $allVariables = array_merge($this->getCommonVariables(), $variables);
+        
+        // Replace placeholders in content
+        $content = $this->replacePlaceholders($contentHtml, $allVariables);
+        
+        // Load base template and inject content
+        $baseTemplate = $this->loadBaseTemplate();
+        $allVariables['content'] = $content;
+        $allVariables['subject'] = $config['subject'];
+        $allVariables['preheader'] = $config['preheader'] ?? '';
+        
+        // Build final HTML
+        $finalHtml = $this->replacePlaceholders($baseTemplate, $allVariables);
+        
+        return [
+            'subject' => $this->replacePlaceholders($config['subject'], $allVariables),
+            'body' => $finalHtml,
+        ];
+    }
+
+    // ========================================
+    // EMAIL SENDING METHODS
+    // ========================================
+
     /**
      * Send welcome email on registration
-     *
-     * @param User $user User
-     * @return bool Success
      */
     public function sendWelcomeEmail(User $user): bool
     {
         try {
+            $email = $this->buildEmailFromTemplate('welcome', [
+                'user_name' => htmlspecialchars($user->name),
+                'user_email' => htmlspecialchars($user->email),
+            ]);
+            
+            if (!$email) {
+                error_log('Failed to build welcome email template');
+                return false;
+            }
+
             $this->mailer->clearAddresses();
             $this->mailer->setFrom($this->fromEmail, $this->fromName);
             $this->mailer->addAddress($user->email, $user->name);
             
             $this->mailer->isHTML(true);
-            $this->mailer->Subject = 'Welcome to Eventic!';
-            $this->mailer->Body = $this->getWelcomeEmailTemplate($user);
+            $this->mailer->Subject = $email['subject'];
+            $this->mailer->Body = $email['body'];
             
             $this->mailer->send();
             return true;
@@ -77,21 +211,28 @@ class EmailService
 
     /**
      * Send email verification email
-     *
-     * @param User $user User
-     * @param string $verificationUrl Verification URL
-     * @return bool Success
      */
     public function sendEmailVerificationEmail(User $user, string $verificationUrl): bool
     {
         try {
+            $email = $this->buildEmailFromTemplate('email_verification', [
+                'user_name' => htmlspecialchars($user->name),
+                'user_email' => htmlspecialchars($user->email),
+                'verification_url' => $verificationUrl,
+            ]);
+            
+            if (!$email) {
+                error_log('Failed to build verification email template');
+                return false;
+            }
+
             $this->mailer->clearAddresses();
             $this->mailer->setFrom($this->fromEmail, $this->fromName);
             $this->mailer->addAddress($user->email, $user->name);
             
             $this->mailer->isHTML(true);
-            $this->mailer->Subject = 'Verify Your Email Address';
-            $this->mailer->Body = $this->getVerificationEmailTemplate($user, $verificationUrl);
+            $this->mailer->Subject = $email['subject'];
+            $this->mailer->Body = $email['body'];
             
             $this->mailer->send();
             return true;
@@ -104,23 +245,30 @@ class EmailService
 
     /**
      * Send password reset email
-     *
-     * @param User $user User
-     * @param string $token Reset token
-     * @return bool Success
      */
     public function sendPasswordResetEmail(User $user, string $token): bool
     {
         try {
-            $resetUrl = $_ENV['APP_URL'] . "/reset-password?token={$token}&email=" . urlencode($user->email);
+            $resetUrl = ($_ENV['FRONTEND_URL'] ?? 'http://localhost:5173') . "/reset-password?token={$token}&email=" . urlencode($user->email);
+            
+            $email = $this->buildEmailFromTemplate('password_reset', [
+                'user_name' => htmlspecialchars($user->name),
+                'user_email' => htmlspecialchars($user->email),
+                'reset_url' => $resetUrl,
+            ]);
+            
+            if (!$email) {
+                error_log('Failed to build password reset email template');
+                return false;
+            }
 
             $this->mailer->clearAddresses();
             $this->mailer->setFrom($this->fromEmail, $this->fromName);
             $this->mailer->addAddress($user->email, $user->name);
             
             $this->mailer->isHTML(true);
-            $this->mailer->Subject = 'Password Reset Request';
-            $this->mailer->Body = $this->getPasswordResetEmailTemplate($user, $resetUrl);
+            $this->mailer->Subject = $email['subject'];
+            $this->mailer->Body = $email['body'];
             
             $this->mailer->send();
             return true;
@@ -133,20 +281,28 @@ class EmailService
 
     /**
      * Send password changed confirmation email
-     *
-     * @param User $user User
-     * @return bool Success
      */
     public function sendPasswordChangedEmail(User $user): bool
     {
         try {
+            $email = $this->buildEmailFromTemplate('password_changed', [
+                'user_name' => htmlspecialchars($user->name),
+                'user_email' => htmlspecialchars($user->email),
+                'timestamp' => date('F j, Y \a\t g:i A T'),
+            ]);
+            
+            if (!$email) {
+                error_log('Failed to build password changed email template');
+                return false;
+            }
+
             $this->mailer->clearAddresses();
             $this->mailer->setFrom($this->fromEmail, $this->fromName);
             $this->mailer->addAddress($user->email, $user->name);
             
             $this->mailer->isHTML(true);
-            $this->mailer->Subject = 'Password Changed Successfully';
-            $this->mailer->Body = $this->getPasswordChangedEmailTemplate($user);
+            $this->mailer->Subject = $email['subject'];
+            $this->mailer->Body = $email['body'];
             
             $this->mailer->send();
             return true;
@@ -159,14 +315,8 @@ class EmailService
 
     /**
      * Generic send method for NotificationService compatibility
-     *
-     * @param string $to Recipient email
-     * @param string $subject Email subject
-     * @param string $body Email body (HTML)
-     * @param string $fromName Optional custom from name
-     * @return bool Success
      */
-    public function send(string $to, string $subject, string $body, string $fromName = null): bool
+    public function send(string $to, string $subject, string $body, ?string $fromName = null): bool
     {
         try {
             $this->mailer->clearAddresses();
@@ -186,86 +336,39 @@ class EmailService
         }
     }
 
-    // ========================================
-    // EMAIL TEMPLATES
-    // ========================================
-
-    private function getWelcomeEmailTemplate(User $user): string
+    /**
+     * Send a custom email using a template
+     * 
+     * @param string $templateName Name of the template (without extension)
+     * @param string $toEmail Recipient email
+     * @param string $toName Recipient name
+     * @param array $variables Template variables
+     * @return bool
+     */
+    public function sendFromTemplate(string $templateName, string $toEmail, string $toName, array $variables = []): bool
     {
-        $name = htmlspecialchars($user->name);
-        return "
-            <html>
-            <body style='font-family: Arial, sans-serif;'>
-                <h2>Welcome to Eventic, {$name}!</h2>
-                <p>Thank you for registering. We're excited to have you on board.</p>
-                <p>You can now start exploring events and booking tickets.</p>
-                <br>
-                <p>Best regards,<br>The Eventic Team</p>
-            </body>
-            </html>
-        ";
-    }
+        try {
+            $email = $this->buildEmailFromTemplate($templateName, $variables);
+            
+            if (!$email) {
+                error_log("Failed to build email template: {$templateName}");
+                return false;
+            }
 
-    private function getVerificationEmailTemplate(User $user, string $verificationUrl): string
-    {
-        $name = htmlspecialchars($user->name);
-        return "
-            <html>
-            <body style='font-family: Arial, sans-serif;'>
-                <h2>Verify Your Email</h2>
-                <p>Hi {$name},</p>
-                <p>Please click the button below to verify your email address:</p>
-                <p>
-                    <a href='{$verificationUrl}' style='background-color: #4CAF50; color: white; padding: 14px 20px; text-decoration: none; border-radius: 4px;'>
-                        Verify Email
-                    </a>
-                </p>
-                <p>This link will expire in 24 hours.</p>
-                <p>If you didn't create this account, you can safely ignore this email.</p>
-                <br>
-                <p>Best regards,<br>The Eventic Team</p>
-            </body>
-            </html>
-        ";
-    }
+            $this->mailer->clearAddresses();
+            $this->mailer->setFrom($this->fromEmail, $this->fromName);
+            $this->mailer->addAddress($toEmail, $toName);
+            
+            $this->mailer->isHTML(true);
+            $this->mailer->Subject = $email['subject'];
+            $this->mailer->Body = $email['body'];
+            
+            $this->mailer->send();
+            return true;
 
-    private function getPasswordResetEmailTemplate(User $user, string $resetUrl): string
-    {
-        $name = htmlspecialchars($user->name);
-        return "
-            <html>
-            <body style='font-family: Arial, sans-serif;'>
-                <h2>Password Reset Request</h2>
-                <p>Hi {$name},</p>
-                <p>We received a request to reset your password. Click the button below to reset it:</p>
-                <p>
-                    <a href='{$resetUrl}' style='background-color: #2196F3; color: white; padding: 14px 20px; text-decoration: none; border-radius: 4px;'>
-                        Reset Password
-                    </a>
-                </p>
-                <p>This link will expire in 1 hour.</p>
-                <p>If you didn't request this, please ignore this email and your password will remain unchanged.</p>
-                <br>
-                <p>Best regards,<br>The Eventic Team</p>
-            </body>
-            </html>
-        ";
-    }
-
-    private function getPasswordChangedEmailTemplate(User $user): string
-    {
-        $name = htmlspecialchars($user->name);
-        return "
-            <html>
-            <body style='font-family: Arial, sans-serif;'>
-                <h2>Password Changed Successfully</h2>
-                <p>Hi {$name},</p>
-                <p>This is a confirmation that your password has been changed successfully.</p>
-                <p>If you didn't make this change, please contact our support team immediately.</p>
-                <br>
-                <p>Best regards,<br>The Eventic Team</p>
-            </body>
-            </html>
-        ";
+        } catch (Exception $e) {
+            error_log("Template email error ({$templateName}): " . $e->getMessage());
+            return false;
+        }
     }
 }
