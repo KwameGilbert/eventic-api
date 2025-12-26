@@ -57,6 +57,10 @@ return function (App $app): void {
         // Analytics
         $group->get('/analytics', [$adminController, 'getAnalytics']);
 
+        // Settings
+        $group->get('/settings', [$adminController, 'getSettings']);
+        $group->put('/settings', [$adminController, 'updateSettings']);
+
         // Note: Payout management routes (/payouts/*) are in PayoutRoute.php
     })->add($authMiddleware);
 };

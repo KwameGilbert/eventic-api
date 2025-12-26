@@ -28,6 +28,10 @@ return function (App $app) {
     $app->post('/v1/auth/password/forgot', [$passwordResetController, 'requestReset']);
     $app->post('/v1/auth/password/reset', [$passwordResetController, 'resetPassword']);
 
+    // Email verification routes (public)
+    $app->get('/v1/auth/verify-email', [$authController, 'verifyEmail']);
+    $app->post('/v1/auth/resend-verification', [$authController, 'resendVerificationEmail']);
+
     // Protected routes (authentication required)
     $app->group('/v1/auth', function ($group) use ($authController) {
         $group->get('/me', [$authController, 'me']);

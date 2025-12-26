@@ -37,10 +37,10 @@ class EmailService
     {
         try {
             $this->mailer->isSMTP();
-            $this->mailer->Host = $_ENV['MAIL_HOST'] ?? 'smtp.mailtrap.io';
+            $this->mailer->Host = $_ENV['MAIL_HOST'] ?? 'smtp.gmail.com';
             $this->mailer->SMTPAuth = true;
-            $this->mailer->Username = $_ENV['MAIL_USERNAME'] ?? '';
-            $this->mailer->Password = $_ENV['MAIL_PASSWORD'] ?? '';
+            $this->mailer->Username = $_ENV['MAIL_USERNAME'] ?? 'eventic@gmail.com';
+            $this->mailer->Password = $_ENV['MAIL_PASSWORD'] ?? 'eventic123';
             $this->mailer->SMTPSecure = $_ENV['MAIL_ENCRYPTION'] ?? 'tls';
             $this->mailer->Port = (int)($_ENV['MAIL_PORT'] ?? 587);
             $this->mailer->CharSet = 'UTF-8';

@@ -47,6 +47,7 @@ return function ($app): void {
         // Admin (specific routes first)
         '/v1/admin/payouts' => ROUTE . 'v1/PayoutRoute.php',
         '/v1/admin/analytics' => ROUTE . 'v1/AdminRoute.php',
+        '/v1/admin/settings' => ROUTE . 'v1/AdminRoute.php',
         '/v1/admin' => ROUTE . 'v1/AdminRoute.php',
     ];
 

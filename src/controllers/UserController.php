@@ -70,8 +70,6 @@ class UserController
                 return ResponseHelper::error($response, 'Email already exists', 409);
             }
             
-            // Note: Password hashing is handled by the User model mutator
-            
             $user = User::create($data);
             
             return ResponseHelper::success($response, 'User created successfully', $user->toArray(), 201);

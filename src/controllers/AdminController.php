@@ -2141,5 +2141,147 @@ class AdminController
             return ResponseHelper::error($response, 'Failed to fetch analytics data', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Get all platform settings
+     * GET /v1/admin/settings
+     */
+    public function getSettings(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Verify admin role
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $PlatformSetting = new \App\Models\PlatformSetting();
+
+            // Get all settings grouped by category
+            $settings = [
+                'general' => [
+                    'site_name' => $PlatformSetting::get('site_name', 'Eventic'),
+                    'site_description' => $PlatformSetting::get('site_description', 'Event and Award Management Platform'),
+                    'contact_email' => $PlatformSetting::get('contact_email', 'support@eventic.com'),
+                    'support_phone' => $PlatformSetting::get('support_phone', '+233 000 000 0000'),
+                    'timezone' => $PlatformSetting::get('timezone', 'Africa/Accra'),
+                    'currency' => $PlatformSetting::get('currency', 'GHS'),
+                    'currency_symbol' => $PlatformSetting::get('currency_symbol', 'GH₵'),
+                    'date_format' => $PlatformSetting::get('date_format', 'Y-m-d'),
+                ],
+                'payment' => [
+                    'paystack_public_key' => $PlatformSetting::get('paystack_public_key', ''),
+                    'paystack_secret_key' => $PlatformSetting::get('paystack_secret_key', ''),
+                    'paystack_fee_percent' => $PlatformSetting::get('paystack_fee_percent', 1.5),
+                    'default_event_admin_share' => $PlatformSetting::get('default_event_admin_share', 10),
+                    'default_award_admin_share' => $PlatformSetting::get('default_award_admin_share', 15),
+                    'min_payout_amount' => $PlatformSetting::get('min_payout_amount', 50),
+                    'payout_hold_days' => $PlatformSetting::get('payout_hold_days', 7),
+                ],
+                'features' => [
+                    'enable_event_ticketing' => $PlatformSetting::get('enable_event_ticketing', true),
+                    'enable_award_voting' => $PlatformSetting::get('enable_award_voting', true),
+                    'enable_organizer_registration' => $PlatformSetting::get('enable_organizer_registration', true),
+                    'require_event_approval' => $PlatformSetting::get('require_event_approval', true),
+                    'require_award_approval' => $PlatformSetting::get('require_award_approval', true),
+                    'enable_event_reviews' => $PlatformSetting::get('enable_event_reviews', true),
+                    'enable_refunds' => $PlatformSetting::get('enable_refunds', false),
+                ],
+                'email' => [
+                    'smtp_host' => $PlatformSetting::get('smtp_host', ''),
+                    'smtp_port' => $PlatformSetting::get('smtp_port', 587),
+                    'smtp_username' => $PlatformSetting::get('smtp_username', ''),
+                    'smtp_password' => $PlatformSetting::get('smtp_password', ''),
+                    'smtp_encryption' => $PlatformSetting::get('smtp_encryption', 'tls'),
+                    'from_email' => $PlatformSetting::get('from_email', 'noreply@eventic.com'),
+                    'from_name' => $PlatformSetting::get('from_name', 'Eventic'),
+                ],
+                'notifications' => [
+                    'enable_email_notifications' => $PlatformSetting::get('enable_email_notifications', true),
+                    'enable_sms_notifications' => $PlatformSetting::get('enable_sms_notifications', false),
+                    'notify_new_order' => $PlatformSetting::get('notify_new_order', true),
+                    'notify_new_event' => $PlatformSetting::get('notify_new_event', true),
+                    'notify_new_award' => $PlatformSetting::get('notify_new_award', true),
+                    'notify_payout_request' => $PlatformSetting::get('notify_payout_request', true),
+                ],
+                'security' => [
+                    'enable_2fa' => $PlatformSetting::get('enable_2fa', false),
+                    'session_timeout' => $PlatformSetting::get('session_timeout', 1440),
+                    'max_login_attempts' => $PlatformSetting::get('max_login_attempts', 5),
+                    'lockout_duration' => $PlatformSetting::get('lockout_duration', 30),
+                    'require_strong_passwords' => $PlatformSetting::get('require_strong_passwords', true),
+                    'min_password_length' => $PlatformSetting::get('min_password_length', 8),
+                ],
+                'limits' => [
+                    'max_tickets_per_order' => $PlatformSetting::get('max_tickets_per_order', 10),
+                    'max_votes_per_transaction' => $PlatformSetting::get('max_votes_per_transaction', 1000),
+                    'max_file_upload_size' => $PlatformSetting::get('max_file_upload_size', 5),
+                    'max_images_per_event' => $PlatformSetting::get('max_images_per_event', 10),
+                ],
+            ];
+
+            return ResponseHelper::success($response, 'Settings fetched successfully', $settings);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch settings', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update platform settings
+     * PUT /v1/admin/settings
+     */
+    public function updateSettings(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Verify super admin role
+            if ($jwtUser->role !== 'super_admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Super admin access required.', 403);
+            }
+
+            $data = $request->getParsedBody();
+
+            if (empty($data)) {
+                return ResponseHelper::error($response, 'No settings data provided', 400);
+            }
+
+            $PlatformSetting = new \App\Models\PlatformSetting();
+            $updated = [];
+
+            // Process each category of settings
+            foreach ($data as $category => $settings) {
+                if (!is_array($settings)) {
+                    continue;
+                }
+
+                foreach ($settings as $key => $value) {
+                    $settingKey = $key;
+                    $settingType = 'string';
+
+                    // Determine setting type
+                    if (is_bool($value)) {
+                        $settingType = 'boolean';
+                        $value = $value ? '1' : '0';
+                    } elseif (is_numeric($value)) {
+                        $settingType = 'number';
+                    } elseif (is_array($value)) {
+                        $settingType = 'json';
+                    }
+
+                    $PlatformSetting::set($settingKey, $value, $settingType);
+                    $updated[$settingKey] = $value;
+                }
+            }
+
+            return ResponseHelper::success($response, 'Settings updated successfully', [
+                'updated_count' => count($updated),
+                'updated_keys' => array_keys($updated),
+            ]);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update settings', 500, $e->getMessage());
+        }
+    }
 }
 

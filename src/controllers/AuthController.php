@@ -7,12 +7,15 @@ namespace App\Controllers;
 use App\Models\User;
 use App\Models\Attendee;
 use App\Models\Organizer;
+use App\Models\EmailVerificationToken;
 use App\Helper\ResponseHelper;
 use App\Services\AuthService;
+use App\Services\EmailService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Respect\Validation\Validator as v;
 use Exception;
+
 
 /**
  * AuthController
@@ -72,17 +75,21 @@ class AuthController
             // Log registration event
             $this->authService->logAuditEvent($user->id, 'register', $metadata);
 
+            // Generate email verification token and send verification email
+            $this->sendVerificationEmail($user);
+
             // Generate tokens
             $userPayload = $this->authService->generateUserPayload($user);
             $accessToken = $this->authService->generateAccessToken($userPayload);
             $refreshToken = $this->authService->createRefreshToken($user->id, $metadata);
 
-            return ResponseHelper::success($response, 'User registered successfully', [
+            return ResponseHelper::success($response, 'User registered successfully. Please check your email to verify your account.', [
                 'user' => [
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
-                    'role' => $user->role
+                    'role' => $user->role,
+                    'email_verified' => false,
                 ],
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken,
@@ -412,5 +419,156 @@ class AuthController
             'user_agent' => $request->getHeaderLine('User-Agent'),
             'device_name' => $request->getHeaderLine('X-Device-Name') // Optional custom header
         ];
+    }
+
+    /**
+     * Send verification email to user
+     * 
+     * @param User $user
+     * @return bool
+     */
+    private function sendVerificationEmail(User $user): bool
+    {
+        try {
+            // Generate token with plain token for URL
+            $tokenData = EmailVerificationToken::createWithPlainToken($user, 24);
+            $plainToken = $tokenData['plainToken'];
+
+            // Build verification URL
+            $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
+            $verificationUrl = "{$frontendUrl}/verify-email?token={$plainToken}&email=" . urlencode($user->email);
+
+            // Send email
+            $emailService = new EmailService();
+            return $emailService->sendEmailVerificationEmail($user, $verificationUrl);
+        } catch (Exception $e) {
+            error_log('Failed to send verification email: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Verify email with token
+     * GET /auth/verify-email?token=xxx&email=xxx
+     */
+    public function verifyEmail(Request $request, Response $response): Response
+    {
+        try {
+            $params = $request->getQueryParams();
+
+            if (empty($params['token'])) {
+                return ResponseHelper::error($response, 'Verification token is required', 400);
+            }
+
+            if (empty($params['email'])) {
+                return ResponseHelper::error($response, 'Email is required', 400);
+            }
+
+            // Find the token
+            $verificationToken = EmailVerificationToken::findByToken($params['token']);
+
+            if (!$verificationToken) {
+                return ResponseHelper::error($response, 'Invalid or expired verification token', 400);
+            }
+
+            // Verify the email matches
+            if ($verificationToken->email !== $params['email']) {
+                return ResponseHelper::error($response, 'Email does not match the verification token', 400);
+            }
+
+            // Get the user
+            $user = User::find($verificationToken->user_id);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Check if already verified
+            if ($user->email_verified) {
+                return ResponseHelper::success($response, 'Email already verified', [
+                    'email_verified' => true,
+                    'email' => $user->email,
+                ]);
+            }
+
+            // Mark token as used
+            $verificationToken->markAsUsed();
+
+            // Update user email verification status
+            $user->update([
+                'email_verified' => true,
+                'email_verified_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            // Log verification event
+            $this->authService->logAuditEvent($user->id, 'email_verified', [
+                'ip_address' => $request->getServerParams()['REMOTE_ADDR'] ?? null,
+                'user_agent' => $request->getHeaderLine('User-Agent'),
+            ]);
+
+            return ResponseHelper::success($response, 'Email verified successfully', [
+                'email_verified' => true,
+                'email' => $user->email,
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                ],
+            ]);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Email verification failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Resend verification email
+     * POST /auth/resend-verification
+     */
+    public function resendVerificationEmail(Request $request, Response $response): Response
+    {
+        try {
+            $data = $request->getParsedBody();
+
+            if (empty($data['email'])) {
+                return ResponseHelper::error($response, 'Email is required', 400);
+            }
+
+            // Find user by email
+            $user = User::where('email', $data['email'])->first();
+
+            if (!$user) {
+                // Return success to prevent email enumeration
+                return ResponseHelper::success($response, 'If an account exists with this email, a verification link has been sent.', []);
+            }
+
+            // Check if already verified
+            if ($user->email_verified) {
+                return ResponseHelper::success($response, 'Email is already verified', [
+                    'email_verified' => true,
+                ]);
+            }
+
+            // Send verification email
+            $sent = $this->sendVerificationEmail($user);
+
+            if (!$sent) {
+                return ResponseHelper::error($response, 'Failed to send verification email. Please try again later.', 500);
+            }
+
+            // Log resend event
+            $this->authService->logAuditEvent($user->id, 'resend_verification', [
+                'ip_address' => $request->getServerParams()['REMOTE_ADDR'] ?? null,
+                'user_agent' => $request->getHeaderLine('User-Agent'),
+            ]);
+
+            return ResponseHelper::success($response, 'Verification email sent successfully. Please check your inbox.', [
+                'email' => $user->email,
+            ]);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to resend verification email', 500, $e->getMessage());
+        }
     }
 }
