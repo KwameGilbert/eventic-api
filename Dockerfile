@@ -6,9 +6,7 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     unzip \
     git \
-    sqlite3 \
   && docker-php-ext-install pdo pdo_mysql zip \
-    pdo_sqlite \
   && apt-get clean
 
 # Enable Apache mod_rewrite for URL routing
@@ -55,21 +53,8 @@ RUN if [ -f .env ]; then chmod 644 /var/www/html/.env && chown www-data:www-data
 # Run composer dump-autoload after everything is set up
 RUN composer dump-autoload --optimize
   
-
-
-# Copy seed file and entrypoint script
-COPY database/seed.sql /var/www/html/database/seed.sql
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Create SQLite database file and set permissions
-RUN mkdir -p /var/www/html/database && \
-    touch /var/www/html/database/database.sqlite && \
-    chown www-data:www-data /var/www/html/database/database.sqlite && \
-    chmod 664 /var/www/html/database/database.sqlite
-
 # Expose port 80 for Apache
 EXPOSE 80
 
-# Use entrypoint script to seed database and start Apache
-ENTRYPOINT ["/entrypoint.sh"]
+# Start Apache in the foreground
+CMD ["apache2-foreground"]
