@@ -341,6 +341,7 @@ class Award extends Model
                     'nominees' => $category->nominees->map(function ($nominee) {
                         $nomineeData = [
                             'id' => $nominee->id,
+                            'nominee_code' => $nominee->nominee_code,
                             'name' => $nominee->name,
                             'description' => $nominee->description,
                             'image' => $nominee->image,

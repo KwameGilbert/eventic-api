@@ -22,6 +22,10 @@ return function (App $app): void {
         // Query Params: ?include_stats=true|false
         $group->get('/nominees/awards/{awardId}', [$nomineeController, 'getByAward']);
 
+        // Get single nominee details by code (for voting)
+        // Query Params: ?include_stats=true|false
+        $group->get('/nominees/code/{code}', [$nomineeController, 'showByCode']);
+
         // Get single nominee details
         // Query Params: ?include_stats=true|false
         $group->get('/nominees/{id}', [$nomineeController, 'show']);

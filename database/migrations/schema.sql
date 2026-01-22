@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS `award_nominees` (
   `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `category_id` int(11) UNSIGNED NOT NULL,
   `award_id` int(11) UNSIGNED NOT NULL,
+  `nominee_code` varchar(4) NOT NULL COMMENT 'Unique 4-character alphanumeric code for voting',
   `name` varchar(255) NOT NULL,
   `description` text DEFAULT NULL,
   `image` varchar(255) DEFAULT NULL,
@@ -167,6 +168,7 @@ CREATE TABLE IF NOT EXISTS `award_nominees` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `nominee_code` (`nominee_code`),
   KEY `category_id` (`category_id`),
   KEY `award_id` (`award_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

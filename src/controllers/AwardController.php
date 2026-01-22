@@ -610,6 +610,7 @@ class AwardController
                 $categoryLeaderboard = $category->nominees->map(function ($nominee) {
                     return [
                         'nominee_id' => $nominee->id,
+                        'nominee_code' => $nominee->nominee_code,
                         'nominee_name' => $nominee->name,
                         'nominee_image' => $nominee->image,
                         'total_votes' => $nominee->getTotalVotes(),

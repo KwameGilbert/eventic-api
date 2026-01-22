@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $id
  * @property int $category_id
  * @property int $award_id
+ * @property string $nominee_code
  * @property string $name
  * @property string|null $description
  * @property string|null $image
@@ -32,11 +33,59 @@ class AwardNominee extends Model
     protected $fillable = [
         'category_id',
         'award_id',
+        'nominee_code',
         'name',
         'description',
         'image',
         'display_order',
     ];
+
+    /**
+     * Boot method to handle model events.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Auto-generate nominee_code when creating a new nominee
+        static::creating(function ($nominee) {
+            if (empty($nominee->nominee_code)) {
+                $nominee->nominee_code = self::generateUniqueCode();
+            }
+        });
+    }
+
+    /**
+     * Generate a unique 4-character alphanumeric code.
+     */
+    public static function generateUniqueCode(): string
+    {
+        $characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluded I, O, 0, 1 to avoid confusion
+        $maxAttempts = 100;
+        
+        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
+            $code = '';
+            for ($i = 0; $i < 4; $i++) {
+                $code .= $characters[random_int(0, strlen($characters) - 1)];
+            }
+            
+            // Check if code already exists
+            if (!self::where('nominee_code', $code)->exists()) {
+                return $code;
+            }
+        }
+        
+        // Fallback: use timestamp-based code if random generation fails
+        return strtoupper(substr(base_convert((string)time(), 10, 36), -4));
+    }
+
+    /**
+     * Find a nominee by their unique code.
+     */
+    public static function findByCode(string $code): ?self
+    {
+        return self::where('nominee_code', strtoupper($code))->first();
+    }
 
     protected $casts = [
         'category_id' => 'integer',
@@ -116,6 +165,7 @@ class AwardNominee extends Model
 
         return [
             'id' => $this->id,
+            'nominee_code' => $this->nominee_code,
             'category_id' => $this->category_id,
             'award_id' => $this->award_id,
             'name' => $this->name,

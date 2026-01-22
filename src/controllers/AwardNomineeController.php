@@ -52,6 +52,7 @@ class AwardNomineeController
                 $nomineesData = $nominees->map(function ($nominee) {
                     return [
                         'id' => $nominee->id,
+                        'nominee_code' => $nominee->nominee_code,
                         'category_id' => $nominee->category_id,
                         'award_id' => $nominee->award_id,
                         'name' => $nominee->name,
@@ -103,6 +104,7 @@ class AwardNomineeController
                 $nomineesData = $nominees->map(function ($nominee) {
                     return [
                         'id' => $nominee->id,
+                        'nominee_code' => $nominee->nominee_code,
                         'category_id' => $nominee->category_id,
                         'category_name' => $nominee->category ? $nominee->category->name : null,
                         'award_id' => $nominee->award_id,
@@ -141,6 +143,50 @@ class AwardNomineeController
                 ? $nominee->getDetailsWithStats()
                 : [
                     'id' => $nominee->id,
+                    'nominee_code' => $nominee->nominee_code,
+                    'category_id' => $nominee->category_id,
+                    'category_name' => $nominee->category ? $nominee->category->name : null,
+                    'award_id' => $nominee->award_id,
+                    'award_name' => $nominee->award ? $nominee->award->title : null,
+                    'name' => $nominee->name,
+                    'description' => $nominee->description,
+                    'image' => $nominee->image,
+                    'display_order' => $nominee->display_order,
+                    'created_at' => $nominee->created_at?->toIso8601String(),
+                    'updated_at' => $nominee->updated_at?->toIso8601String(),
+                ];
+
+            return ResponseHelper::success($response, 'Nominee fetched successfully', $nomineeData);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch nominee', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single nominee details by code
+     * GET /v1/nominees/code/{code}
+     */
+    public function showByCode(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $code = $args['code'];
+            $queryParams = $request->getQueryParams();
+            $includeStats = isset($queryParams['include_stats']) && $queryParams['include_stats'] === 'true';
+
+            $nominee = AwardNominee::findByCode($code);
+
+            if (!$nominee) {
+                return ResponseHelper::error($response, 'Nominee not found', 404);
+            }
+
+            // Load relationships
+            $nominee->load(['category', 'award']);
+
+            $nomineeData = $includeStats 
+                ? $nominee->getDetailsWithStats()
+                : [
+                    'id' => $nominee->id,
+                    'nominee_code' => $nominee->nominee_code,
                     'category_id' => $nominee->category_id,
                     'category_name' => $nominee->category ? $nominee->category->name : null,
                     'award_id' => $nominee->award_id,

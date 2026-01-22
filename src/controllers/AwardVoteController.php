@@ -102,6 +102,7 @@ class AwardVoteController
                 'reference' => $reference,
                 'nominee' => [
                     'id' => $nominee->id,
+                    'nominee_code' => $nominee->nominee_code,
                     'name' => $nominee->name,
                     'image' => $nominee->image,
                 ],
@@ -243,6 +244,7 @@ class AwardVoteController
             // Add related information
             $voteDetails['nominee'] = $vote->nominee ? [
                 'id' => $vote->nominee->id,
+                'nominee_code' => $vote->nominee->nominee_code,
                 'name' => $vote->nominee->name,
                 'image' => $vote->nominee->image,
             ] : null;
@@ -442,6 +444,7 @@ class AwardVoteController
             $nominees = $category->nominees->map(function ($nominee) use ($category) {
                 return [
                     'id' => $nominee->id,
+                    'nominee_code' => $nominee->nominee_code,
                     'name' => $nominee->name,
                     'image' => $nominee->image,
                     'description' => $nominee->description,
