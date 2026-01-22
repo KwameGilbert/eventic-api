@@ -9,6 +9,7 @@
 @awardId = 1
 @categoryId = 1
 @nomineeId = 1
+@nomineeCode = A3K7
 
 ### ============================================================
 ### PUBLIC ROUTES (No Authentication Required)
@@ -21,21 +22,23 @@ GET {{baseUrl}}/nominees/award-categories/{{categoryId}}?include_stats=true
 ### Expected Response:
 # {
 #     "success": true,
-#     "data": {
-#         "nominees": [
-#             {
-#                 "id": 1,
-#                 "name": "Artist Name",
-#                 "description": "Award-winning artist with multiple hits...",
-#                 "image": "https://...",
-#                 "display_order": 1,
-#                 "stats": {
-#                     "total_votes": 1500,
-#                     "rank": 1
-#                 }
-#             }
-#         ]
-#     }
+#     "message": "Nominees fetched successfully",
+#     "data": [
+#         {
+#             "id": 1,
+#             "nominee_code": "A3K7",
+#             "category_id": 1,
+#             "award_id": 1,
+#             "name": "Artist Name",
+#             "description": "Award-winning artist with multiple hits...",
+#             "image": "https://...",
+#             "display_order": 1,
+#             "total_votes": 1500,
+#             "total_revenue": 1500.00,
+#             "created_at": "2025-12-20T10:00:00+00:00",
+#             "updated_at": "2025-12-20T10:00:00+00:00"
+#         }
+#     ]
 # }
 
 ###
@@ -47,49 +50,76 @@ GET {{baseUrl}}/nominees/awards/{{awardId}}?include_stats=false
 ### Expected Response:
 # {
 #     "success": true,
+#     "message": "Award nominees fetched successfully",
+#     "data": [
+#         {
+#             "id": 1,
+#             "nominee_code": "A3K7",
+#             "category_id": 1,
+#             "category_name": "Best Artist",
+#             "award_id": 1,
+#             "name": "Artist Name",
+#             "description": "Description...",
+#             "image": "https://...",
+#             "display_order": 1
+#         }
+#     ]
+# }
+
+###
+
+### Get Nominee by Voting Code (NEW)
+# Use this to look up a nominee using their 4-character voting code
+# Query Params: ?include_stats=true|false
+GET {{baseUrl}}/nominees/code/{{nomineeCode}}?include_stats=true
+
+### Expected Response:
+# {
+#     "success": true,
+#     "message": "Nominee fetched successfully",
 #     "data": {
-#         "nominees": [
-#             {
-#                 "id": 1,
-#                 "category_id": 1,
-#                 "category_name": "Best Artist",
-#                 "name": "Artist Name",
-#                 "image": "https://..."
-#             }
-#         ]
+#         "id": 1,
+#         "nominee_code": "A3K7",
+#         "category_id": 1,
+#         "category_name": "Best Artist of the Year",
+#         "award_id": 1,
+#         "award_name": "Ghana Music Awards",
+#         "name": "Artist Name",
+#         "description": "Full description of the nominee...",
+#         "image": "https://...",
+#         "display_order": 1,
+#         "total_votes": 1500,
+#         "total_revenue": 1500.00,
+#         "created_at": "2025-12-20T10:00:00+00:00",
+#         "updated_at": "2025-12-20T10:00:00+00:00"
 #     }
 # }
 
 ###
 
-### Get Single Nominee Details
+### Get Single Nominee Details by ID
 # Query Params: ?include_stats=true|false
 GET {{baseUrl}}/nominees/{{nomineeId}}?include_stats=true
 
 ### Expected Response:
 # {
 #     "success": true,
+#     "message": "Nominee fetched successfully",
 #     "data": {
-#         "nominee": {
-#             "id": 1,
-#             "name": "Artist Name",
-#             "description": "Full description of the nominee...",
-#             "image": "https://...",
-#             "category": {
-#                 "id": 1,
-#                 "name": "Best Artist of the Year",
-#                 "vote_cost": 1.00
-#             },
-#             "award": {
-#                 "id": 1,
-#                 "title": "Ghana Music Awards"
-#             },
-#             "stats": {
-#                 "total_votes": 1500,
-#                 "rank": 1,
-#                 "revenue": 1500.00
-#             }
-#         }
+#         "id": 1,
+#         "nominee_code": "A3K7",
+#         "category_id": 1,
+#         "category_name": "Best Artist of the Year",
+#         "award_id": 1,
+#         "award_name": "Ghana Music Awards",
+#         "name": "Artist Name",
+#         "description": "Full description of the nominee...",
+#         "image": "https://...",
+#         "display_order": 1,
+#         "total_votes": 1500,
+#         "total_revenue": 1500.00,
+#         "created_at": "2025-12-20T10:00:00+00:00",
+#         "updated_at": "2025-12-20T10:00:00+00:00"
 #     }
 # }
 
@@ -101,17 +131,12 @@ GET {{baseUrl}}/nominees/{{nomineeId}}/stats
 ### Expected Response:
 # {
 #     "success": true,
+#     "message": "Nominee statistics fetched successfully",
 #     "data": {
-#         "stats": {
-#             "total_votes": 1500,
-#             "total_revenue": 1500.00,
-#             "rank": 1,
-#             "percentage": 30.5,
-#             "daily_votes": [
-#                 {"date": "2025-12-20", "votes": 100},
-#                 {"date": "2025-12-21", "votes": 150}
-#             ]
-#         }
+#         "total_votes": 1500,
+#         "total_revenue": 1500.00,
+#         "paid_votes_count": 150,
+#         "pending_votes_count": 5
 #     }
 # }
 
@@ -122,6 +147,7 @@ GET {{baseUrl}}/nominees/{{nomineeId}}/stats
 ### ============================================================
 
 ### Create New Nominee
+# The nominee_code is auto-generated (4-character alphanumeric code)
 POST {{baseUrl}}/nominees/award-categories/{{categoryId}}
 Content-Type: application/json
 Authorization: Bearer {{authToken}}
@@ -137,11 +163,16 @@ Authorization: Bearer {{authToken}}
 #     "success": true,
 #     "message": "Nominee created successfully",
 #     "data": {
-#         "nominee": {
-#             "id": 10,
-#             "name": "New Nominee Name",
-#             "category_id": 1
-#         }
+#         "id": 10,
+#         "nominee_code": "X7Y2",
+#         "category_id": 1,
+#         "award_id": 1,
+#         "name": "New Nominee Name",
+#         "description": "Description of the nominee and their achievements",
+#         "image": null,
+#         "display_order": 5,
+#         "created_at": "2025-12-20T10:00:00+00:00",
+#         "updated_at": "2025-12-20T10:00:00+00:00"
 #     }
 # }
 
@@ -157,6 +188,8 @@ Authorization: Bearer {{authToken}}
 # description=Description here
 # display_order=1
 # image=@/path/to/image.jpg
+#
+# Response includes auto-generated nominee_code
 
 ###
 
@@ -175,7 +208,16 @@ Authorization: Bearer {{authToken}}
 #     "success": true,
 #     "message": "Nominee updated successfully",
 #     "data": {
-#         "nominee": {...}
+#         "id": 1,
+#         "nominee_code": "A3K7",
+#         "category_id": 1,
+#         "award_id": 1,
+#         "name": "Updated Nominee Name",
+#         "description": "Updated description",
+#         "image": "https://...",
+#         "display_order": 1,
+#         "created_at": "...",
+#         "updated_at": "..."
 #     }
 # }
 
@@ -200,6 +242,8 @@ Authorization: Bearer {{authToken}}
 #     "success": true,
 #     "message": "Nominee deleted successfully"
 # }
+#
+# Note: Returns error if nominee has paid votes
 
 ###
 
@@ -209,17 +253,18 @@ Content-Type: application/json
 Authorization: Bearer {{authToken}}
 
 {
-    "order": [
-        {"id": 3, "display_order": 1},
-        {"id": 1, "display_order": 2},
-        {"id": 2, "display_order": 3}
-    ]
+    "order": [3, 1, 2]
 }
 
 ### Expected Response:
 # {
 #     "success": true,
-#     "message": "Nominees reordered successfully"
+#     "message": "Nominees reordered successfully",
+#     "data": [
+#         {"id": 3, "nominee_code": "B4Y8", "name": "...", "display_order": 0},
+#         {"id": 1, "nominee_code": "A3K7", "name": "...", "display_order": 1},
+#         {"id": 2, "nominee_code": "C5Z9", "name": "...", "display_order": 2}
+#     ]
 # }
 
 ###
