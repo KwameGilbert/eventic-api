@@ -1,0 +1,263 @@
+### USSD Test Requests
+### Use this file with VS Code REST Client extension or similar
+### Update @baseUrl to your local or deployed USSD endpoint
+
+@baseUrl = http://localhost:6000
+@sessionId = TEST_SESSION_123456789
+@msisdn = 233541436414
+@network = MTN
+
+### ============================================
+### STEP 1: New Session - Show Main Menu
+### ============================================
+# @name newSession
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "{{sessionId}}",
+    "userID": "TEST_USER_001",
+    "newSession": true,
+    "msisdn": "{{msisdn}}",
+    "userData": "",
+    "network": "{{network}}"
+}
+
+### Expected Response:
+### - continueSession: true
+### - message: "Welcome to Eventic Voting!..."
+
+
+### ============================================
+### STEP 2: Select "Vote" Option (Option 1)
+### ============================================
+# @name selectVote
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "{{sessionId}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "1",
+    "network": "{{network}}"
+}
+
+### Expected Response:
+### - continueSession: true
+### - message: "Enter nominee code:"
+
+
+### ============================================
+### STEP 3: Enter Nominee Code
+### ============================================
+### Replace "A1B2" with an actual nominee_code from your database
+### You can find these in award_nominees table
+# @name enterNomineeCode
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "{{sessionId}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "A1B2",
+    "network": "{{network}}"
+}
+
+### Expected Response (if code is valid):
+### - continueSession: true
+### - message: "Enter number of votes for:..."
+
+### Expected Response (if code is invalid):
+### - continueSession: false
+### - message: "Invalid nominee code..."
+
+
+### ============================================
+### STEP 4: Enter Number of Votes
+### ============================================
+# @name enterVotes
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "{{sessionId}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "5",
+    "network": "{{network}}"
+}
+
+### Expected Response:
+### - continueSession: true
+### - message: "Confirm vote:..." with total cost
+
+
+### ============================================
+### STEP 5: Confirm Vote (Enter "1")
+### ============================================
+# @name confirmVote
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "{{sessionId}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "1",
+    "network": "{{network}}"
+}
+
+### Expected Response:
+### - continueSession: false
+### - message: "Payment initiated!..." with reference
+
+
+### ============================================
+### ALTERNATIVE FLOWS
+### ============================================
+
+### View Results (Option 2)
+# @name viewResults
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "TEST_SESSION_RESULTS_{{$timestamp}}",
+    "userID": "TEST_USER_001",
+    "newSession": true,
+    "msisdn": "{{msisdn}}",
+    "userData": "",
+    "network": "{{network}}"
+}
+
+###
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "TEST_SESSION_RESULTS_{{$timestamp}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "2",
+    "network": "{{network}}"
+}
+
+
+### Contact Us (Option 3)
+# @name contactUs
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "TEST_SESSION_CONTACT_{{$timestamp}}",
+    "userID": "TEST_USER_001",
+    "newSession": true,
+    "msisdn": "{{msisdn}}",
+    "userData": "",
+    "network": "{{network}}"
+}
+
+###
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "TEST_SESSION_CONTACT_{{$timestamp}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "3",
+    "network": "{{network}}"
+}
+
+
+### ============================================
+### WEBHOOK TEST (Simulating Paystack Callback)
+### ============================================
+### Replace the reference with actual value from Step 5 response
+
+# @name webhookSuccess
+POST {{baseUrl}}/main_process.php
+Content-Type: application/json
+
+{
+    "event": "charge.success",
+    "data": {
+        "reference": "USSD_TEST_SESSION_1234567890_1234567890",
+        "amount": 500,
+        "currency": "GHS",
+        "customer": {
+            "phone": "{{msisdn}}",
+            "email": "test@example.com"
+        },
+        "metadata": {
+            "source": "ussd"
+        }
+    }
+}
+
+### Expected Response:
+### - status: "success" (if vote found and updated)
+### - status: "not_found" (if reference doesn't match any pending vote)
+
+
+### ============================================
+### ERROR SCENARIOS
+### ============================================
+
+### Invalid Menu Option
+# @name invalidOption
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "TEST_SESSION_ERROR_{{$timestamp}}",
+    "userID": "TEST_USER_001",
+    "newSession": true,
+    "msisdn": "{{msisdn}}",
+    "userData": "",
+    "network": "{{network}}"
+}
+
+###
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "TEST_SESSION_ERROR_{{$timestamp}}",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "9",
+    "network": "{{network}}"
+}
+
+### Expected Response:
+### - continueSession: false
+### - message: "Invalid option..."
+
+
+### Session Expired (using unknown session ID)
+# @name sessionExpired
+POST {{baseUrl}}/main.php
+Content-Type: application/json
+
+{
+    "sessionID": "UNKNOWN_SESSION_12345",
+    "userID": "TEST_USER_001",
+    "newSession": false,
+    "msisdn": "{{msisdn}}",
+    "userData": "1",
+    "network": "{{network}}"
+}
+
+### Expected Response:
+### - continueSession: false
+### - message: "Session expired..."

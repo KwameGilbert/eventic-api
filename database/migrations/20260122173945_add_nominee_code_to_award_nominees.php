@@ -2,8 +2,7 @@
 
 declare(strict_types=1);
 
-use Illuminate\Database\Capsule\Manager as DB;
-use Illuminate\Database\Schema\Blueprint;
+use Phinx\Migration\AbstractMigration;
 
 /**
  * Migration: Add nominee_code column to award_nominees table
@@ -11,33 +10,38 @@ use Illuminate\Database\Schema\Blueprint;
  * This adds a unique 4-character alphanumeric code to each nominee
  * that can be used for identification and voting purposes.
  */
-class AddNomineeCodeToAwardNominees
+final class AddNomineeCodeToAwardNominees extends AbstractMigration
 {
     public function up(): void
     {
-        $schema = DB::schema();
-
-        // Add nominee_code column
-        $schema->table('award_nominees', function (Blueprint $table) {
-            $table->string('nominee_code', 4)->nullable()->unique()->after('award_id');
-        });
-
-        // Generate codes for existing nominees
-        $this->generateCodesForExistingNominees();
-
-        // Make column NOT NULL after populating
-        $schema->table('award_nominees', function (Blueprint $table) {
-            $table->string('nominee_code', 4)->nullable(false)->change();
-        });
+        $table = $this->table('award_nominees');
+        
+        // Add nominee_code column if it doesn't exist
+        if (!$table->hasColumn('nominee_code')) {
+            $table->addColumn('nominee_code', 'string', [
+                'limit' => 10,
+                'null' => true,
+                'after' => 'award_id'
+            ])
+            ->addIndex(['nominee_code'], ['unique' => true])
+            ->update();
+            
+            // Generate codes for existing nominees
+            $this->generateCodesForExistingNominees();
+            
+            // Make column NOT NULL after populating
+            $this->execute("ALTER TABLE award_nominees MODIFY nominee_code VARCHAR(10) NOT NULL");
+        }
     }
 
     public function down(): void
     {
-        $schema = DB::schema();
-
-        $schema->table('award_nominees', function (Blueprint $table) {
-            $table->dropColumn('nominee_code');
-        });
+        $table = $this->table('award_nominees');
+        
+        if ($table->hasColumn('nominee_code')) {
+            $table->removeColumn('nominee_code')
+                  ->update();
+        }
     }
 
     /**
@@ -45,17 +49,21 @@ class AddNomineeCodeToAwardNominees
      */
     private function generateCodesForExistingNominees(): void
     {
-        $nominees = DB::table('award_nominees')->whereNull('nominee_code')->get();
+        $rows = $this->fetchAll('SELECT id FROM award_nominees WHERE nominee_code IS NULL');
         $characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
         $existingCodes = [];
 
-        foreach ($nominees as $nominee) {
+        foreach ($rows as $row) {
             $code = $this->generateUniqueCode($characters, $existingCodes);
             $existingCodes[] = $code;
             
-            DB::table('award_nominees')
-                ->where('id', $nominee->id)
-                ->update(['nominee_code' => $code]);
+            $this->execute(
+                sprintf(
+                    "UPDATE award_nominees SET nominee_code = '%s' WHERE id = %d",
+                    $code,
+                    $row['id']
+                )
+            );
         }
     }
 
@@ -74,11 +82,11 @@ class AddNomineeCodeToAwardNominees
             
             // Check if code is unique
             if (!in_array($code, $existingCodes)) {
-                $existsInDb = DB::table('award_nominees')
-                    ->where('nominee_code', $code)
-                    ->exists();
+                $existing = $this->fetchRow(
+                    sprintf("SELECT id FROM award_nominees WHERE nominee_code = '%s'", $code)
+                );
                     
-                if (!$existsInDb) {
+                if (!$existing) {
                     return $code;
                 }
             }

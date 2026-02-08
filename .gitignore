@@ -2,4 +2,6 @@ vendor
 MIGRATION_CHEATSHEET.md
 .gitignore
 README_ORM.md
-.env 
+.env
+ussd/*.log
+ussd/logs/ 
