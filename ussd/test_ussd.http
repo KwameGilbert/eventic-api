@@ -63,7 +63,7 @@ Content-Type: application/json
     "userID": "TEST_USER_001",
     "newSession": false,
     "msisdn": "{{msisdn}}",
-    "userData": "A1B2",
+    "userData": "4TUH",
     "network": "{{network}}"
 }
 

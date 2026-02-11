@@ -267,54 +267,70 @@ switch ($level) {
             break;
         }
         
-        // Initiate Paystack mobile money payment
-        $paystackSecret = $_ENV['PAYSTACK_SECRET_KEY'] ?? '';
-        if (empty($paystackSecret)) {
-            $logger->error('Paystack secret key not configured');
+        // Initiate ExpressPay mobile money payment
+        $merchantId = $_ENV['EXPRESSPAY_MERCHANT_ID'] ?? '';
+        $apiKey = $_ENV['EXPRESSPAY_API_KEY'] ?? '';
+        $isLive = ($_ENV['APP_ENV'] ?? 'development') === 'production';
+        
+        if (empty($merchantId) || empty($apiKey)) {
+            $logger->error('ExpressPay credentials not configured');
             $message = "Payment system unavailable. Contact support.";
             $continueSession = false;
             break;
         }
         
-        // Paystack expects amount in pesewas (kobo equivalent for GHS)
-        $amountInPesewas = (int) ceil($totalCost * 100);
+        // ExpressPay API URL
+        $expressPayUrl = $isLive 
+            ? 'https://expresspaygh.com/api/submit.php'
+            : 'https://sandbox.expresspaygh.com/api/submit.php';
         
-        $paystackData = [
-            'amount' => $amountInPesewas,
+        // Get nominee name for order description
+        $nomineeName = $lastResponse['nomineeName'] ?? 'Nominee';
+        
+        // ExpressPay request data
+        $expressPayData = [
+            'merchant-id' => $merchantId,
+            'api-key' => $apiKey,
+            'firstname' => 'USSD',
+            'lastname' => 'Voter',
             'email' => "ussd_{$sessionID}@eventic.com",
-            'currency' => 'GHS',
-            'reference' => $reference,
-            'mobile_money' => [
-                'phone' => $msisdn,
-                'provider' => getPaystackProvider($network),
-            ],
-            'metadata' => [
-                'vote_id' => $vote->id,
-                'nominee_id' => $nomineeId,
-                'award_id' => $awardId,
-                'source' => 'ussd',
-            ],
+            'phonenumber' => ltrim($msisdn, '+'),  // Remove + prefix if present
+            'amount' => number_format($totalCost, 2, '.', ''),
+            'order-id' => $reference,
+            'order-desc' => "{$votes} votes for {$nomineeName}",
+            'redirect-url' => $_ENV['APP_URL'] ?? 'https://eventic.com',
+            'order-img-url' => $_ENV['APP_LOGO'] ?? 'https://eventic.com/logo.png',
+            'ipn-url' => ($_ENV['APP_URL'] ?? 'https://eventic.com') . '/ussd/main_process.php',
         ];
         
-        $ch = curl_init('https://api.paystack.co/charge');
+        // Build query string
+        $postFields = http_build_query($expressPayData);
+        
+        $ch = curl_init($expressPayUrl);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($paystackData),
+            CURLOPT_POSTFIELDS => $postFields,
             CURLOPT_HTTPHEADER => [
-                "Authorization: Bearer {$paystackSecret}",
-                "Content-Type: application/json",
+                "Content-Type: application/x-www-form-urlencoded",
             ],
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_TIMEOUT => 30,
         ]);
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
         
-        $logger->debug('Paystack response', ['http_code' => $httpCode, 'response' => substr($response, 0, 200)]);
+        $logger->debug('ExpressPay response', [
+            'http_code' => $httpCode, 
+            'response' => substr($response, 0, 300),
+            'curl_error' => $curlError
+        ]);
         
-        if ($httpCode !== 200) {
-            $logger->error('Paystack request failed', ['http_code' => $httpCode]);
+        if ($curlError) {
+            $logger->error('ExpressPay curl error', ['error' => $curlError]);
             $message = "Payment initiation failed. Please try again.";
             $continueSession = false;
             break;
@@ -322,13 +338,67 @@ switch ($level) {
         
         $responseData = json_decode($response, true);
         
-        if (($responseData['status'] ?? false) === true) {
-            $message = "Payment initiated!\nCheck your phone for the mobile money prompt.\nRef: " . substr($reference, -8);
-            $continueSession = false;
-            $logger->info('Payment initiated successfully', ['reference' => $reference]);
+        // ExpressPay returns status 1 for success
+        if (($responseData['status'] ?? 0) == 1 && !empty($responseData['token'])) {
+            $token = $responseData['token'];
+            
+            // Store token in vote record for verification
+            $vote->payment_token = $token;
+            $vote->save();
+            
+            // Now initiate mobile money prompt using the token
+            $mobileMoneyUrl = $isLive
+                ? 'https://expresspaygh.com/api/mobile-money.php'
+                : 'https://sandbox.expresspaygh.com/api/mobile-money.php';
+            
+            // Determine network code for ExpressPay
+            $networkCode = match(strtolower($network)) {
+                'mtn' => 'MTN',
+                'vodafone', 'voda' => 'VOD',
+                'airteltigo', 'airtel', 'tigo' => 'ATL',
+                default => 'MTN'
+            };
+            
+            $mobileMoneyData = [
+                'merchant-id' => $merchantId,
+                'api-key' => $apiKey,
+                'token' => $token,
+                'network-code' => $networkCode,
+            ];
+            
+            $ch2 = curl_init($mobileMoneyUrl);
+            curl_setopt_array($ch2, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => http_build_query($mobileMoneyData),
+                CURLOPT_HTTPHEADER => [
+                    "Content-Type: application/x-www-form-urlencoded",
+                ],
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_TIMEOUT => 30,
+            ]);
+            
+            $mmResponse = curl_exec($ch2);
+            $mmError = curl_error($ch2);
+            curl_close($ch2);
+            
+            $logger->debug('ExpressPay mobile money response', ['response' => $mmResponse, 'error' => $mmError]);
+            
+            $mmResponseData = json_decode($mmResponse, true);
+            
+            if (($mmResponseData['status'] ?? 0) == 1) {
+                $message = "Payment initiated!\nCheck your phone for the mobile money prompt.\nRef: " . substr($reference, -8);
+                $continueSession = false;
+                $logger->info('Payment initiated successfully', ['reference' => $reference, 'token' => $token]);
+            } else {
+                $errorMsg = $mmResponseData['message'] ?? $mmResponseData['error-message'] ?? 'Mobile money prompt failed';
+                $logger->error('Mobile money prompt failed', ['error' => $errorMsg]);
+                $message = "Payment failed. Please try again.\nRef: " . substr($reference, -8);
+                $continueSession = false;
+            }
         } else {
-            $errorMsg = $responseData['message'] ?? 'Unknown error';
-            $logger->error('Payment initiation failed', ['error' => $errorMsg]);
+            $errorMsg = $responseData['message'] ?? $responseData['error-message'] ?? 'Unknown error';
+            $logger->error('ExpressPay initiation failed', ['error' => $errorMsg, 'response' => $responseData]);
             $message = "Payment failed: {$errorMsg}";
             $continueSession = false;
         }

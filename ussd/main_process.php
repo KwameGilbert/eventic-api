@@ -1,9 +1,9 @@
 <?php
 
 /**
- * USSD Payment Webhook Handler
+ * USSD Payment Webhook Handler (ExpressPay IPN)
  * 
- * Handles Paystack webhook callbacks for USSD vote payments.
+ * Handles ExpressPay IPN (Instant Payment Notification) callbacks for USSD vote payments.
  * Integrated with Eventic API using shared models.
  */
 
@@ -27,39 +27,60 @@ EloquentBootstrap::boot();
 // Initialize logger
 $logger = new UssdLogger('webhook');
 
-// Get webhook payload
-$input = @file_get_contents("php://input");
-$event = json_decode($input, true);
+// ExpressPay sends data via POST parameters
+$orderId = $_POST['order-id'] ?? $_GET['order-id'] ?? '';
+$token = $_POST['token'] ?? $_GET['token'] ?? '';
+$status = $_POST['status'] ?? $_GET['status'] ?? '';
+$transactionId = $_POST['transaction-id'] ?? $_GET['transaction-id'] ?? '';
 
-$logger->info('Webhook received', [
-    'event_type' => $event['event'] ?? 'unknown',
-    'reference' => $event['data']['reference'] ?? 'none',
+$logger->info('ExpressPay IPN received', [
+    'order_id' => $orderId,
+    'token' => $token,
+    'status' => $status,
+    'transaction_id' => $transactionId,
+    'post_data' => $_POST,
+    'get_data' => $_GET,
 ]);
 
-// Verify this is a successful charge
-if (($event['event'] ?? '') !== 'charge.success') {
-    $logger->debug('Ignoring non-success event', ['event' => $event['event'] ?? 'none']);
-    http_response_code(200);
-    echo json_encode(['status' => 'ignored']);
-    exit();
+// If no order-id or token, try to get from JSON body
+if (empty($orderId) && empty($token)) {
+    $input = file_get_contents("php://input");
+    $data = json_decode($input, true);
+    
+    if ($data) {
+        $orderId = $data['order-id'] ?? $data['orderId'] ?? '';
+        $token = $data['token'] ?? '';
+        $status = $data['status'] ?? '';
+        $transactionId = $data['transaction-id'] ?? $data['transactionId'] ?? '';
+        
+        $logger->info('ExpressPay IPN from JSON body', [
+            'order_id' => $orderId,
+            'token' => $token,
+            'status' => $status,
+        ]);
+    }
 }
 
-$reference = $event['data']['reference'] ?? '';
-$amount = $event['data']['amount'] ?? 0; // Amount in pesewas
-$amountGHS = $amount / 100;
-
-if (empty($reference)) {
-    $logger->error('Missing reference in webhook');
+// Validate required parameters
+if (empty($orderId) && empty($token)) {
+    $logger->error('Missing order-id and token in IPN');
     http_response_code(400);
-    echo json_encode(['status' => 'error', 'message' => 'Missing reference']);
+    echo json_encode(['status' => 'error', 'message' => 'Missing required parameters']);
     exit();
 }
 
-// Find the pending vote by reference
-$vote = AwardVote::where('reference', $reference)->first();
+// Find the vote by reference (order-id) or token
+$vote = null;
+if (!empty($orderId)) {
+    $vote = AwardVote::where('reference', $orderId)->first();
+}
+
+if (!$vote && !empty($token)) {
+    $vote = AwardVote::where('payment_token', $token)->first();
+}
 
 if (!$vote) {
-    $logger->warning('Vote not found for reference', ['reference' => $reference]);
+    $logger->warning('Vote not found for IPN', ['order_id' => $orderId, 'token' => $token]);
     http_response_code(200);
     echo json_encode(['status' => 'not_found']);
     exit();
@@ -72,22 +93,73 @@ if ($vote->status === 'paid') {
     exit();
 }
 
+// Verify the transaction status with ExpressPay
+$merchantId = $_ENV['EXPRESSPAY_MERCHANT_ID'] ?? '';
+$apiKey = $_ENV['EXPRESSPAY_API_KEY'] ?? '';
+$isLive = ($_ENV['APP_ENV'] ?? 'development') === 'production';
+
+$queryUrl = $isLive
+    ? 'https://expresspaygh.com/api/query.php'
+    : 'https://sandbox.expresspaygh.com/api/query.php';
+
+$queryData = [
+    'merchant-id' => $merchantId,
+    'api-key' => $apiKey,
+    'token' => $token ?: $vote->payment_token,
+];
+
+$ch = curl_init($queryUrl);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => http_build_query($queryData),
+    CURLOPT_HTTPHEADER => [
+        "Content-Type: application/x-www-form-urlencoded",
+    ],
+    CURLOPT_TIMEOUT => 30,
+]);
+
+$response = curl_exec($ch);
+$curlError = curl_error($ch);
+curl_close($ch);
+
+$logger->debug('ExpressPay query response', ['response' => $response, 'error' => $curlError]);
+
+$queryResult = json_decode($response, true);
+
+// Check if payment was successful
+// ExpressPay returns result-code 1 for successful payments
+$resultCode = $queryResult['result-code'] ?? $queryResult['result'] ?? null;
+$isSuccessful = ($resultCode == 1 || strtolower($queryResult['result'] ?? '') === 'approved');
+
+if (!$isSuccessful) {
+    $logger->info('Payment not yet successful', [
+        'vote_id' => $vote->id, 
+        'result_code' => $resultCode,
+        'result' => $queryResult
+    ]);
+    http_response_code(200);
+    echo json_encode(['status' => 'pending', 'message' => 'Payment not yet confirmed']);
+    exit();
+}
+
 // Mark vote as paid
 try {
     $vote->status = 'paid';
+    $vote->payment_transaction_id = $transactionId ?: ($queryResult['transaction-id'] ?? null);
     $vote->save();
     
     $logger->info('Vote marked as paid', [
         'vote_id' => $vote->id,
         'nominee_id' => $vote->nominee_id,
         'votes' => $vote->number_of_votes,
-        'amount' => $amountGHS,
+        'amount' => $vote->gross_amount,
     ]);
     
     // Create transaction record
     try {
         Transaction::create([
-            'reference' => $reference,
+            'reference' => $vote->reference,
             'transaction_type' => 'vote_purchase',
             'organizer_id' => $vote->award->organizer_id ?? null,
             'award_id' => $vote->award_id,
@@ -101,13 +173,14 @@ try {
             'metadata' => json_encode([
                 'source' => 'ussd',
                 'voter_phone' => $vote->voter_phone,
+                'payment_provider' => 'expresspay',
+                'transaction_id' => $vote->payment_transaction_id,
             ]),
         ]);
         
-        $logger->info('Transaction record created', ['reference' => $reference]);
+        $logger->info('Transaction record created', ['reference' => $vote->reference]);
     } catch (Exception $e) {
         $logger->error('Failed to create transaction', ['error' => $e->getMessage()]);
-        // Don't fail the webhook for this - vote is already marked paid
     }
     
     // Update organizer balance
@@ -119,7 +192,6 @@ try {
                 ['available_balance' => 0, 'pending_balance' => 0, 'total_earned' => 0, 'total_withdrawn' => 0]
             );
             
-            // Add to pending balance (will become available after hold period)
             $balance->pending_balance += $vote->organizer_amount;
             $balance->total_earned += $vote->organizer_amount;
             $balance->save();
@@ -131,7 +203,6 @@ try {
         }
     } catch (Exception $e) {
         $logger->error('Failed to update organizer balance', ['error' => $e->getMessage()]);
-        // Don't fail the webhook for this - vote is already marked paid
     }
     
     http_response_code(200);
@@ -139,7 +210,7 @@ try {
     
 } catch (Exception $e) {
     $logger->error('Failed to process payment', [
-        'reference' => $reference,
+        'order_id' => $orderId,
         'error' => $e->getMessage(),
     ]);
     
