@@ -35,15 +35,15 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('phone', 'string', ['limit' => 255, 'null' => true])
                 ->addColumn('password', 'string', ['limit' => 255, 'null' => false])
                 ->addColumn('remember_token', 'string', ['limit' => 100, 'null' => true])
-                ->addColumn('role', 'enum', [
-                    'values' => ['admin', 'organizer', 'attendee', 'pos', 'scanner'],
+                ->addColumn('role', 'string', [
+                    'limit' => 20,
                     'default' => 'attendee',
                     'null' => false
                 ])
                 ->addColumn('email_verified', 'boolean', ['default' => false, 'null' => true])
                 ->addColumn('email_verified_at', 'timestamp', ['null' => true])
-                ->addColumn('status', 'enum', [
-                    'values' => ['active', 'suspended'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'active',
                     'null' => false
                 ])
@@ -130,8 +130,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('banner_image', 'string', ['limit' => 255, 'null' => true])
                 ->addColumn('start_time', 'datetime', ['null' => false])
                 ->addColumn('end_time', 'datetime', ['null' => false])
-                ->addColumn('status', 'enum', [
-                    'values' => ['draft', 'completed', 'pending', 'published', 'cancelled'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'draft',
                     'null' => false
                 ])
@@ -198,8 +198,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('ceremony_date', 'datetime', ['null' => false, 'comment' => 'Awards ceremony date'])
                 ->addColumn('voting_start', 'datetime', ['null' => false, 'comment' => 'Global voting start'])
                 ->addColumn('voting_end', 'datetime', ['null' => false, 'comment' => 'Global voting end'])
-                ->addColumn('status', 'enum', [
-                    'values' => ['draft', 'completed', 'pending', 'published', 'cancelled'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'draft',
                     'null' => true
                 ])
@@ -262,8 +262,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('cost_per_vote', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 1.00, 'null' => false])
                 ->addColumn('voting_start', 'datetime', ['null' => true])
                 ->addColumn('voting_end', 'datetime', ['null' => true])
-                ->addColumn('status', 'enum', [
-                    'values' => ['active', 'deactivated'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'active',
                     'null' => false
                 ])
@@ -312,8 +312,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('admin_amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00, 'null' => false])
                 ->addColumn('organizer_amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00, 'null' => false])
                 ->addColumn('payment_fee', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00, 'null' => false])
-                ->addColumn('status', 'enum', [
-                    'values' => ['pending', 'paid'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'pending',
                     'null' => false
                 ])
@@ -351,8 +351,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('sale_end', 'datetime', ['null' => true])
                 ->addColumn('max_per_user', 'integer', ['default' => 10])
                 ->addColumn('ticket_image', 'string', ['limit' => 255, 'null' => true])
-                ->addColumn('status', 'enum', [
-                    'values' => ['active', 'deactivated'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'active',
                     'null' => false
                 ])
@@ -377,8 +377,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('subtotal', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
                 ->addColumn('fees', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
                 ->addColumn('total_amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
-                ->addColumn('status', 'enum', [
-                    'values' => ['pending', 'paid', 'failed', 'refunded', 'cancelled'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'pending'
                 ])
                 ->addColumn('payment_reference', 'string', ['limit' => 255, 'null' => true])
@@ -430,8 +430,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('event_id', 'integer', ['null' => false, 'signed' => false])
                 ->addColumn('ticket_type_id', 'integer', ['null' => false, 'signed' => false])
                 ->addColumn('ticket_code', 'string', ['limit' => 255, 'null' => false])
-                ->addColumn('status', 'enum', [
-                    'values' => ['active', 'used', 'cancelled'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'active'
                 ])
                 ->addColumn('admitted_by', 'integer', ['null' => true, 'signed' => false])
@@ -541,24 +541,24 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('organizer_id', 'integer', ['null' => false, 'signed' => false])
                 ->addColumn('event_id', 'integer', ['null' => true, 'signed' => false])
                 ->addColumn('award_id', 'integer', ['null' => true, 'signed' => false])
-                ->addColumn('payout_type', 'enum', [
-                    'values' => ['event', 'award'],
+                ->addColumn('payout_type', 'string', [
+                    'limit' => 20,
                     'default' => 'event',
                     'null' => false
                 ])
                 ->addColumn('amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
                 ->addColumn('gross_amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00, 'null' => false])
                 ->addColumn('admin_fee', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00, 'null' => false])
-                ->addColumn('payment_method', 'enum', [
-                    'values' => ['bank_transfer', 'mobile_money'],
+                ->addColumn('payment_method', 'string', [
+                    'limit' => 30,
                     'default' => 'bank_transfer',
                     'null' => false
                 ])
                 ->addColumn('account_number', 'string', ['limit' => 255, 'null' => false])
                 ->addColumn('account_name', 'string', ['limit' => 255, 'null' => false])
                 ->addColumn('bank_name', 'string', ['limit' => 255, 'null' => true])
-                ->addColumn('status', 'enum', [
-                    'values' => ['pending', 'processing', 'completed', 'rejected'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'pending',
                     'null' => false
                 ])
@@ -586,8 +586,8 @@ final class FullDatabaseSchema extends AbstractMigration
             $this->table('transactions', ['id' => false, 'primary_key' => ['id']])
                 ->addColumn('id', 'integer', ['identity' => true, 'signed' => false])
                 ->addColumn('reference', 'string', ['limit' => 100, 'null' => false])
-                ->addColumn('transaction_type', 'enum', [
-                    'values' => ['ticket_sale', 'vote_purchase', 'payout', 'refund'],
+                ->addColumn('transaction_type', 'string', [
+                    'limit' => 30,
                     'null' => false
                 ])
                 ->addColumn('organizer_id', 'integer', ['signed' => false, 'null' => true])
@@ -601,8 +601,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('admin_amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
                 ->addColumn('organizer_amount', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
                 ->addColumn('payment_fee', 'decimal', ['precision' => 10, 'scale' => 2, 'default' => 0.00])
-                ->addColumn('status', 'enum', [
-                    'values' => ['pending', 'completed', 'failed', 'refunded'],
+                ->addColumn('status', 'string', [
+                    'limit' => 20,
                     'default' => 'pending',
                     'null' => false
                 ])
@@ -639,8 +639,8 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('id', 'integer', ['identity' => true, 'signed' => false])
                 ->addColumn('setting_key', 'string', ['limit' => 100, 'null' => false])
                 ->addColumn('setting_value', 'text', ['null' => false])
-                ->addColumn('setting_type', 'enum', [
-                    'values' => ['string', 'number', 'boolean', 'json'],
+                ->addColumn('setting_type', 'string', [
+                    'limit' => 20,
                     'default' => 'string',
                     'null' => false
                 ])

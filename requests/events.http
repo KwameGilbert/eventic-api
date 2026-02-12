@@ -1,10 +1,10 @@
 ### ============================================================
 ### EVENTS API REQUESTS
-### Base URL: http://localhost:8000/v1/events
+### Base URL: http://localhost:8080/v1/events
 ### ============================================================
 
 ### Variables
-@baseUrl = http://localhost:8000/v1
+@baseUrl = http://localhost:8080/v1
 @authToken = YOUR_JWT_TOKEN_HERE
 
 ### ============================================================

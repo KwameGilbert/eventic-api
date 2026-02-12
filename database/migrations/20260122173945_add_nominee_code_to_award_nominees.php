@@ -20,8 +20,7 @@ final class AddNomineeCodeToAwardNominees extends AbstractMigration
         if (!$table->hasColumn('nominee_code')) {
             $table->addColumn('nominee_code', 'string', [
                 'limit' => 10,
-                'null' => true,
-                'after' => 'award_id'
+                'null' => true
             ])
             ->addIndex(['nominee_code'], ['unique' => true])
             ->update();
@@ -29,9 +28,11 @@ final class AddNomineeCodeToAwardNominees extends AbstractMigration
             // Generate codes for existing nominees
             $this->generateCodesForExistingNominees();
             
-            // Make column NOT NULL after populating
-            $this->execute("ALTER TABLE award_nominees MODIFY nominee_code VARCHAR(10) NOT NULL");
-        }
+            $table->changeColumn('nominee_code', 'string', [
+                'limit' => 10,
+                'null' => false
+            ])->update();
+        };
     }
 
     public function down(): void

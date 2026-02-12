@@ -19,13 +19,11 @@ final class AddPaymentTokenToAwardVotes extends AbstractMigration
         if (!$table->hasColumn('payment_token')) {
             $table->addColumn('payment_token', 'string', [
                 'limit' => 100,
-                'null' => true,
-                'after' => 'reference'
+                'null' => true
             ])
             ->addColumn('payment_transaction_id', 'string', [
                 'limit' => 100,
-                'null' => true,
-                'after' => 'payment_token'
+                'null' => true
             ])
             ->addIndex(['payment_token'])
             ->update();
