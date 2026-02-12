@@ -55,6 +55,7 @@ class Database
             'postgresql' => 'pgsql',
             'postgres'   => 'pgsql',
             'pgsql'      => 'pgsql',
+            'pg'         => 'pgsql',
             'mysql'      => 'mysql',
         ];
 
