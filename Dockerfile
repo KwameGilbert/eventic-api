@@ -52,7 +52,7 @@ RUN if [ -f .env ]; then chmod 644 /var/www/html/.env && chown www-data:www-data
 
 # Run composer dump-autoload after everything is set up
 RUN composer dump-autoload --optimize
-  
+
 # Expose port 80 for Apache
 EXPOSE 80
 
