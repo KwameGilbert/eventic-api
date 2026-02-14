@@ -41,14 +41,16 @@ class EloquentBootstrap
             'database' => $_ENV[$prefix . 'DATABASE'],
             'username' => $_ENV[$prefix . 'USERNAME'],
             'password' => $_ENV[$prefix . 'PASSWORD'],
-            'charset' => $driver === 'pgsql' ? 'utf8' : ($_ENV[$prefix . 'CHARSET'] ?? 'utf8mb4'),
+            'charset' => $driver === 'pgsql' ? 'utf8' : (!empty($_ENV[$prefix . 'CHARSET']) ? $_ENV[$prefix . 'CHARSET'] : 'utf8mb4'),
             'prefix' => '',
             'strict' => true,
         ];
 
         // Add MySQL specific options
         if ($driver === 'mysql') {
-            $connectionConfig['collation'] = $_ENV[$prefix . 'COLLATION'] ?? 'utf8mb4_unicode_ci';
+            if (!empty($_ENV[$prefix . 'COLLATION'])) {
+                $connectionConfig['collation'] = $_ENV[$prefix . 'COLLATION'];
+            }
             $connectionConfig['engine'] = null;
         }
 

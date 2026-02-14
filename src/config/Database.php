@@ -28,7 +28,7 @@ class Database
         $this->password = $_ENV[$this->prefix . 'PASSWORD'];
         $this->driver   = $_ENV[$this->prefix . 'DRIVER'] ?? $_ENV[$this->prefix . 'ADAPTER'] ?? 'mysql';
         $this->ssl      = ($_ENV[$this->prefix . 'SSL'] ?? '') === 'require';
-        $this->charset  = $_ENV[$this->prefix . 'CHARSET'] ?? ($this->driver === 'pgsql' ? 'utf8' : 'utf8mb4');
+        $this->charset  = !empty($_ENV[$this->prefix . 'CHARSET']) ? $_ENV[$this->prefix . 'CHARSET'] : ($this->driver === 'pgsql' ? 'utf8' : 'utf8mb4');
     }
 
     public function getConnection()

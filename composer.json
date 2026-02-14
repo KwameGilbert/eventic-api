@@ -4,14 +4,14 @@
   "license": "MIT",
   "type": "project",
   "scripts": {
-    "start": "composer migrate & php -S localhost:8080 -t public",
+    "start": "composer phinx:migrate & php -S localhost:8080 -t public",
     "test": "phpunit",
-    "create:migration": "phinx create",
-    "migrate": "phinx migrate",
-    "create:seed": "phinx seed:create",
-    "migration:status": "phinx status",
-    "seed": "phinx seed:run",
-    "rollback": "phinx rollback"
+    "phinx:create": "phinx create",
+    "phinx:migrate": "phinx migrate",
+    "phinx:seed:create": "phinx seed:create",
+    "phinx:status": "phinx status",
+    "phinx:seed": "phinx seed:run",
+    "phinx:rollback": "phinx rollback"
   },
   "autoload": {
     "psr-4": {
