@@ -36,7 +36,7 @@ class OrganizerController
             $jwtUser = $request->getAttribute('user');
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
 
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
@@ -621,7 +621,7 @@ class OrganizerController
             $jwtUser = $request->getAttribute('user');
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
 
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
@@ -794,7 +794,7 @@ class OrganizerController
 
             // Authorization: Check if user is admin or the profile owner
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin' && $organizer->user_id !== $user->id) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && $organizer->user_id !== $user->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
 
@@ -821,7 +821,7 @@ class OrganizerController
 
             // Authorization: Check if user is admin or the profile owner
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin' && $organizer->user_id !== $user->id) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && $organizer->user_id !== $user->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
 
@@ -868,7 +868,7 @@ class OrganizerController
             $eventId = $args['id'];
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
             }
@@ -883,7 +883,7 @@ class OrganizerController
             }
 
             // Authorization: Check if organizer owns this event
-            if ($jwtUser->role !== 'admin' && $event->organizer_id !== $organizer->id) {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin']) && $event->organizer_id !== $organizer->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
             }
 
@@ -945,7 +945,7 @@ class OrganizerController
             $queryParams = $request->getQueryParams();
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
             }
@@ -1087,7 +1087,7 @@ class OrganizerController
             $orderId = $args['id'];
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
             }
@@ -1112,7 +1112,7 @@ class OrganizerController
             $organizerEventIds = Event::where('organizer_id', $organizer->id)->pluck('id')->toArray();
             
             $hasAccess = !empty(array_intersect($eventIds, $organizerEventIds));
-            if (!$hasAccess && $jwtUser->role !== 'admin') {
+            if (!$hasAccess && !in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized: This order is not for your events', 403);
             }
 
@@ -1274,7 +1274,7 @@ class OrganizerController
             $jwtUser = $request->getAttribute('user');
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
 
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
@@ -1409,7 +1409,7 @@ class OrganizerController
             $awardId = $args['id'];
 
             // Get organizer profile
-            $organizer = Organizer::findByUserId((int) $jwtUser->id);
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
             if (!$organizer) {
                 return ResponseHelper::error($response, 'Organizer profile not found', 404);
             }
@@ -1427,7 +1427,7 @@ class OrganizerController
             }
 
             // Authorization: Check if organizer owns this award
-            if ($jwtUser->role !== 'admin' && $award->organizer_id !== $organizer->id) {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin']) && $award->organizer_id !== $organizer->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
             }
 
@@ -1473,13 +1473,13 @@ class OrganizerController
                     'nominees' => $category->nominees->map(function ($nominee) {
                         return [
                             'id' => $nominee->id,
+                            'nominee_code' => $nominee->nominee_code,
                             'name' => $nominee->name,
                             'description' => $nominee->description,
                             'image' => $nominee->image,
                             'total_votes' => $nominee->getTotalVotes(),
                             'display_order' => $nominee->display_order,
-                        ];
-                    })->toArray(),
+                        ];                    })->toArray(),
                 ];
             })->toArray();
 
@@ -2600,6 +2600,21 @@ HTML;
 </body>
 </html>
 HTML;
+    }
+
+    /**
+     * Get the organizer context for the request.
+     * Allows admins to act on behalf of any organizer.
+     */
+    private function getOrganizerContext(Request $request, $jwtUser): ?Organizer
+    {
+        $queryParams = $request->getQueryParams();
+        
+        if (in_array($jwtUser->role, ['admin', 'super_admin']) && isset($queryParams['organizer_id'])) {
+            return Organizer::find((int) $queryParams['organizer_id']);
+        }
+        
+        return Organizer::findByUserId((int) $jwtUser->id);
     }
 }
 

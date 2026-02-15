@@ -224,7 +224,7 @@ public function create(Request $request, Response $response, array $args): Respo
         }
 
         // Authorization: Check if user owns the award
-        if ($user->role !== 'admin') {
+        if (!in_array($user->role, ['admin', 'super_admin'])) {
             $organizer = Organizer::where('user_id', $user->id)->first();
             if (!$organizer || !$category->award || $organizer->id !== $category->award->organizer_id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
@@ -284,7 +284,7 @@ public function create(Request $request, Response $response, array $args): Respo
             }
 
             // Authorization: Check if user owns the award
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 $award = $nominee->category ? $nominee->category->award : null;
                 if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
@@ -337,7 +337,7 @@ public function create(Request $request, Response $response, array $args): Respo
             }
 
             // Authorization
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 $award = $nominee->category ? $nominee->category->award : null;
                 if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
@@ -410,7 +410,7 @@ public function create(Request $request, Response $response, array $args): Respo
             }
 
             // Authorization
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || !$category->award || $organizer->id !== $category->award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized', 403);

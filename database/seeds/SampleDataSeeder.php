@@ -231,6 +231,7 @@ class SampleDataSeeder extends AbstractSeed
                 'voting_start' => '2026-02-01 00:00:00',
                 'voting_end' => '2026-05-01 23:59:59',
                 'status' => 'published',
+                'award_code' => 'GMA',
                 'show_results' => 1,
                 'is_featured' => 1,
                 'admin_share_percent' => 15.00,
@@ -260,6 +261,7 @@ class SampleDataSeeder extends AbstractSeed
                 'voting_start' => '2026-03-01 00:00:00',
                 'voting_end' => '2026-06-01 23:59:59',
                 'status' => 'published',
+                'award_code' => 'GMO',
                 'show_results' => 1,
                 'is_featured' => 0,
                 'admin_share_percent' => 15.00,
@@ -431,53 +433,54 @@ class SampleDataSeeder extends AbstractSeed
         $newArtisteCat = $this->fetchRow("SELECT id FROM award_categories WHERE name = 'Best New Artiste' AND award_id = {$musicAward['id']}");
 
         $nominees = [];
-        $usedCodes = [];
+        $awardCode = 'GMA'; 
+        $nomineeCounts = []; 
 
         // Artiste of the Year Nominees
         if ($artisteOfYear) {
             $nominees = array_merge($nominees, [
-                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Sarkodie', 'Award-winning rapper and entrepreneur', 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400', 1, $usedCodes),
-                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Stonebwoy', 'Dancehall and Afrobeats sensation', 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400', 2, $usedCodes),
-                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Shatta Wale', 'King of Dancehall', 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=400', 3, $usedCodes),
-                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Black Sherif', 'Rising star and lyrical genius', 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400', 4, $usedCodes),
-                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'KiDi', 'Golden Boy of Highlife', 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=400', 5, $usedCodes),
+                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Sarkodie', 'Award-winning rapper and entrepreneur', 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400', 1, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Stonebwoy', 'Dancehall and Afrobeats sensation', 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400', 2, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Shatta Wale', 'King of Dancehall', 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=400', 3, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'Black Sherif', 'Rising star and lyrical genius', 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400', 4, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $artisteOfYear['id'], 'KiDi', 'Golden Boy of Highlife', 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=400', 5, $awardCode, $nomineeCounts),
             ]);
         }
 
         // Hiplife/Hip-hop Nominees
         if ($hiplifeCat) {
             $nominees = array_merge($nominees, [
-                $this->createNominee($musicAward['id'], $hiplifeCat['id'], 'Sarkodie - Coachella', 'Hit single featuring global artists', 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400', 1, $usedCodes),
-                $this->createNominee($musicAward['id'], $hiplifeCat['id'], 'Medikal - Wrowroho', 'Street anthem of the year', 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=400', 2, $usedCodes),
-                $this->createNominee($musicAward['id'], $hiplifeCat['id'], 'Kwesi Arthur - Live From Nkrumah Krom', 'Critically acclaimed album track', 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400', 3, $usedCodes),
+                $this->createNominee($musicAward['id'], $hiplifeCat['id'], 'Sarkodie - Coachella', 'Hit single featuring global artists', 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400', 1, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $hiplifeCat['id'], 'Medikal - Wrowroho', 'Street anthem of the year', 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=400', 2, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $hiplifeCat['id'], 'Kwesi Arthur - Live From Nkrumah Krom', 'Critically acclaimed album track', 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400', 3, $awardCode, $nomineeCounts),
             ]);
         }
 
         // Highlife Nominees
         if ($highlifeCat) {
             $nominees = array_merge($nominees, [
-                $this->createNominee($musicAward['id'], $highlifeCat['id'], 'KiDi - Touch It', 'Global viral sensation', 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=400', 1, $usedCodes),
-                $this->createNominee($musicAward['id'], $highlifeCat['id'], 'Kuami Eugene - Fire Fire', 'Highlife banger', 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400', 2, $usedCodes),
-                $this->createNominee($musicAward['id'], $highlifeCat['id'], 'Akwaboah - Posti Me', 'Classic love song', 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400', 3, $usedCodes),
+                $this->createNominee($musicAward['id'], $highlifeCat['id'], 'KiDi - Touch It', 'Global viral sensation', 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=400', 1, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $highlifeCat['id'], 'Kuami Eugene - Fire Fire', 'Highlife banger', 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400', 2, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $highlifeCat['id'], 'Akwaboah - Posti Me', 'Classic love song', 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400', 3, $awardCode, $nomineeCounts),
             ]);
         }
 
         // Afrobeats Nominees
         if ($afrobeatsCat) {
             $nominees = array_merge($nominees, [
-                $this->createNominee($musicAward['id'], $afrobeatsCat['id'], 'Stonebwoy - Jejereje', 'Dancehall meets Afrobeats', 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400', 1, $usedCodes),
-                $this->createNominee($musicAward['id'], $afrobeatsCat['id'], 'King Promise - Terminator', 'Smooth Afrobeats hit', 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400', 2, $usedCodes),
-                $this->createNominee($musicAward['id'], $afrobeatsCat['id'], 'Camidoh - Sugarcane', 'TikTok sensation', 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=400', 3, $usedCodes),
+                $this->createNominee($musicAward['id'], $afrobeatsCat['id'], 'Stonebwoy - Jejereje', 'Dancehall meets Afrobeats', 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400', 1, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $afrobeatsCat['id'], 'King Promise - Terminator', 'Smooth Afrobeats hit', 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400', 2, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $afrobeatsCat['id'], 'Camidoh - Sugarcane', 'TikTok sensation', 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=400', 3, $awardCode, $nomineeCounts),
             ]);
         }
 
         // New Artiste Nominees
         if ($newArtisteCat) {
             $nominees = array_merge($nominees, [
-                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Black Sherif', 'First and Second Sermon hitmaker', 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400', 1, $usedCodes),
-                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Gyakie', 'Forever hitmaker', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', 2, $usedCodes),
-                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Yaw Tog', 'Sore hitmaker', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', 3, $usedCodes),
-                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Kofi Jamar', 'Ekorso hitmaker', 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400', 4, $usedCodes),
+                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Black Sherif', 'First and Second Sermon hitmaker', 'https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400', 1, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Gyakie', 'Forever hitmaker', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', 2, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Yaw Tog', 'Sore hitmaker', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', 3, $awardCode, $nomineeCounts),
+                $this->createNominee($musicAward['id'], $newArtisteCat['id'], 'Kofi Jamar', 'Ekorso hitmaker', 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400', 4, $awardCode, $nomineeCounts),
             ]);
         }
 
@@ -487,10 +490,13 @@ class SampleDataSeeder extends AbstractSeed
         echo "✅ Award nominees seeded\n";
     }
 
-    private function createNominee(int $awardId, int $categoryId, string $name, string $description, string $image, int $order, array &$usedCodes): array
+    private function createNominee(int $awardId, int $categoryId, string $name, string $description, string $image, int $order, string $awardCode, array &$nomineeCounts): array
     {
-        $code = $this->generateUniqueCode($usedCodes);
-        $usedCodes[] = $code;
+        if (!isset($nomineeCounts[$awardId])) {
+            $nomineeCounts[$awardId] = 0;
+        }
+        $nomineeCounts[$awardId]++;
+        $code = $awardCode . $nomineeCounts[$awardId];
 
         return [
             'award_id' => $awardId,
@@ -503,20 +509,6 @@ class SampleDataSeeder extends AbstractSeed
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
         ];
-    }
-
-    private function generateUniqueCode(array $existingCodes): string
-    {
-        $characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        
-        do {
-            $code = '';
-            for ($i = 0; $i < 4; $i++) {
-                $code .= $characters[random_int(0, strlen($characters) - 1)];
-            }
-        } while (in_array($code, $existingCodes));
-
-        return $code;
     }
 
     private function seedEvents(): void
@@ -711,7 +703,7 @@ class SampleDataSeeder extends AbstractSeed
         }
 
         // Get some nominees
-        $nominees = $this->fetchAll('SELECT id, category_id, award_id FROM award_nominees LIMIT 10');
+        $nominees = $this->fetchAll('SELECT id, nominee_code, category_id, award_id FROM award_nominees LIMIT 10');
         if (empty($nominees)) {
             echo "No nominees found. Skipping votes...\n";
             return;
@@ -734,6 +726,7 @@ class SampleDataSeeder extends AbstractSeed
 
                 $votes[] = [
                     'nominee_id' => $nominee['id'],
+                    'nominee_code' => $nominee['nominee_code'],
                     'category_id' => $nominee['category_id'],
                     'award_id' => $nominee['award_id'],
                     'number_of_votes' => $numVotes,

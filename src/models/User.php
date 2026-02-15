@@ -58,6 +58,7 @@ class User extends Model
     const UPDATED_AT = 'updated_at';
 
     // Roles
+    const ROLE_SUPER_ADMIN = 'super_admin';
     const ROLE_ADMIN = 'admin';
     const ROLE_ORGANIZER = 'organizer';
     const ROLE_ATTENDEE = 'attendee';

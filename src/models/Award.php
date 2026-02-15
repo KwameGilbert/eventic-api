@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 /**
  * Award Model
@@ -36,7 +37,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $twitter
  * @property string|null $instagram
  * @property string|null $video_url
- * @property int $views
+ * @property string|null $award_code
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -94,6 +95,7 @@ class Award extends Model
         'voting_end',
         'status',
         'show_results',
+        'award_code',
         'is_featured',
         'admin_share_percent',
         'country',
@@ -121,6 +123,88 @@ class Award extends Model
         'views' => 'integer',
         'admin_share_percent' => 'decimal:2',
     ];
+
+    /**
+     * Boot method to handle model events.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Auto-generate award_code when creating if not provided
+        static::creating(function ($award) {
+            if (empty($award->award_code)) {
+                $award->award_code = self::generateUniqueAwardCode($award->title);
+            }
+        });
+    }
+
+    /**
+     * Generate a unique award code based on the title.
+     * 
+     * @param string $title
+     * @return string
+     */
+    public static function generateUniqueAwardCode(string $title): string
+    {
+        $words = preg_split('/\s+/', trim($title));
+        $words = array_filter($words);
+        $totalWords = count($words);
+
+        $attemptedCodes = [];
+
+        // 1. First letters of first two words (e.g. NE)
+        if ($totalWords >= 2) {
+            $code = strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1));
+            if (self::isCodeAvailable($code)) return $code;
+            $attemptedCodes[] = $code;
+        }
+
+        // 2. First letters of first three words (e.g. NEA)
+        if ($totalWords >= 3) {
+            $code = strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1) . substr($words[2], 0, 1));
+            if (self::isCodeAvailable($code)) return $code;
+            $attemptedCodes[] = $code;
+        }
+
+        // 3. First two alphabets of first word (e.g. NU)
+        if ($totalWords >= 1) {
+            $code = strtoupper(substr($words[0], 0, 2));
+            if (strlen($code) == 2 && self::isCodeAvailable($code)) return $code;
+            $attemptedCodes[] = $code;
+        }
+
+        // 4. First three alphabets of first word (e.g. NUG)
+        if ($totalWords >= 1) {
+            $code = strtoupper(substr($words[0], 0, 3));
+            if (strlen($code) >= 2 && self::isCodeAvailable($code)) return $code;
+            $attemptedCodes[] = $code;
+        }
+
+        // 5. Fallback: 3 random alphabets
+        $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        while (true) {
+            $code = '';
+            for ($i = 0; $i < 3; $i++) {
+                $code .= $characters[random_int(0, strlen($characters) - 1)];
+            }
+            if (self::isCodeAvailable($code)) return $code;
+        }
+    }
+
+    /**
+     * Check if an award code is available among non-completed awards.
+     * 
+     * @param string $code
+     * @return bool
+     */
+    public static function isCodeAvailable(string $code): bool
+    {
+        return !self::where('award_code', $code)
+            ->where('status', '!=', self::STATUS_COMPLETED)
+            ->where('ceremony_date', '>', Carbon::now()->addDays(30))
+            ->exists();
+    }
 
     /* -----------------------------------------------------------------
      |  Relationships
@@ -325,7 +409,9 @@ class Award extends Model
             'status' => $this->status,
             'is_featured' => $this->is_featured,
             'show_results' => $this->show_results,
+            'award_code' => $this->award_code,
             'views' => $this->views,
+
             'categories' => $this->categories->map(function ($category) {
                 $categoryData = [
                     'id' => $category->id,

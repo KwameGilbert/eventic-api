@@ -435,7 +435,7 @@ class PayoutController
     private function verifyAdminRole(Request $request, Response $response): ?Response
     {
         $user = $request->getAttribute('user');
-        if (!$user || $user->role !== 'admin') {
+        if (!$user || !in_array($user->role, ['admin', 'super_admin'])) {
             return ResponseHelper::error($response, 'Unauthorized: Admin access required', 403);
         }
         return null;

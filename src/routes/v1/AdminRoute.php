@@ -20,6 +20,7 @@ return function (App $app): void {
 
         // Users Management
         $group->get('/users', [$adminController, 'getUsers']);
+        $group->post('/users', [$adminController, 'createUser']);
         $group->get('/users/{id}', [$adminController, 'getUser']);
         $group->put('/users/{id}/status', [$adminController, 'updateUserStatus']);
         $group->post('/users/{id}/reset-password', [$adminController, 'resetUserPassword']);

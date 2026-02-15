@@ -5,3 +5,4 @@ README_ORM.md
 .env
 ussd/*.log
 ussd/logs/ 
+src/logs

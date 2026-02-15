@@ -240,13 +240,19 @@ class EventController
 
             // Get organizer for the user
             $organizer = Organizer::where('user_id', $user->id)->first();
-            if (!$organizer && $user->role !== 'admin') {
+            if (!$organizer && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Only organizers can create events', 403);
             }
 
-            // Set organizer_id from authenticated user's organizer profile
-            if ($organizer) {
+            // Set organizer_id: allow admins to specify it, otherwise use user's organizer profile
+            if (in_array($user->role, ['admin', 'super_admin']) && isset($data['organizer_id'])) {
+                // organizer_id is already in $data
+            } elseif ($organizer) {
                 $data['organizer_id'] = $organizer->id;
+            }
+
+            if (!isset($data['organizer_id'])) {
+                return ResponseHelper::error($response, 'Organizer ID is required for event creation', 400);
             }
 
             // Validate required fields
@@ -274,7 +280,7 @@ class EventController
             }
 
             // Permission check: Organizers can only set status to draft or pending
-            if ($user->role !== 'admin' && isset($data['status'])) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && isset($data['status'])) {
                 $allowedOrganizerStatuses = [Event::STATUS_DRAFT, Event::STATUS_PENDING];
                 if (!in_array($data['status'], $allowedOrganizerStatuses)) {
                     return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish events.", 403);
@@ -282,11 +288,11 @@ class EventController
             }
 
             // Permission check: Only admins can mark events as featured
-            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+            if (isset($data['is_featured']) && $data['is_featured'] && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, "Only admins can mark events as featured", 403);
             }
             // Force is_featured to false for non-admins
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $data['is_featured'] = false;
             }
 
@@ -364,7 +370,7 @@ class EventController
                                 }
                             }
 
-                            TicketType::create([
+                            $ticketParams = [
                                 'event_id' => $event->id,
                                 'organizer_id' => $event->organizer_id,
                                 'name' => $ticketData['name'],
@@ -377,8 +383,15 @@ class EventController
                                 'sale_start' => !empty($ticketData['saleStartDate']) ? $ticketData['saleStartDate'] : null,
                                 'sale_end' => !empty($ticketData['saleEndDate']) ? $ticketData['saleEndDate'] : null,
                                 'ticket_image' => $ticketImagePath,
-                                'status' => 'active'
-                            ]);
+                                'status' => (isset($ticketData['status']) && in_array($ticketData['status'], [TicketType::STATUS_ACTIVE, TicketType::STATUS_DEACTIVATED])) ? $ticketData['status'] : TicketType::STATUS_ACTIVE
+                            ];
+
+                            // Only admins can set dynamic_fee
+                            if (in_array($user->role, ['admin', 'super_admin']) && isset($ticketData['dynamic_fee'])) {
+                                $ticketParams['dynamic_fee'] = $ticketData['dynamic_fee'];
+                            }
+
+                            TicketType::create($ticketParams);
                         }
                     }
                 }
@@ -409,7 +422,7 @@ class EventController
 
             // Authorization: Check if user is admin or the event organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $event->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
@@ -430,7 +443,7 @@ class EventController
 
                 // Permission check: Organizers can only set status to draft or pending
                 // They can also move from pending back to draft
-                if ($user->role !== 'admin') {
+                if (!in_array($user->role, ['admin', 'super_admin'])) {
                     $allowedOrganizerStatuses = [Event::STATUS_DRAFT, Event::STATUS_PENDING];
                     if (!in_array($data['status'], $allowedOrganizerStatuses)) {
                         return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish events.", 403);
@@ -439,11 +452,11 @@ class EventController
             }
 
             // Permission check: Only admins can mark events as featured
-            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+            if (isset($data['is_featured']) && $data['is_featured'] && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, "Only admins can mark events as featured", 403);
             }
             // Prevent non-admins from changing is_featured value
-            if ($user->role !== 'admin' && isset($data['is_featured'])) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && isset($data['is_featured'])) {
                 unset($data['is_featured']); // Remove from update data
             }
 
@@ -551,7 +564,7 @@ class EventController
                                         }
                                     }
 
-                                    $ticket->update([
+                                    $ticketUpdateParams = [
                                         'name' => $ticketData['name'],
                                         'price' => $ticketData['price'] ?? 0,
                                         'sale_price' => $ticketData['promoPrice'] ?? 0,
@@ -562,7 +575,19 @@ class EventController
                                         'sale_start' => !empty($ticketData['saleStartDate']) ? $ticketData['saleStartDate'] : null,
                                         'sale_end' => !empty($ticketData['saleEndDate']) ? $ticketData['saleEndDate'] : null,
                                         'ticket_image' => $ticketImagePath,
-                                    ]);
+                                    ];
+
+                                    // Validate status if provided
+                                    if (isset($ticketData['status']) && in_array($ticketData['status'], [TicketType::STATUS_ACTIVE, TicketType::STATUS_DEACTIVATED])) {
+                                        $ticketUpdateParams['status'] = $ticketData['status'];
+                                    }
+
+                                    // Only admins can update dynamic_fee
+                                    if (in_array($user->role, ['admin', 'super_admin']) && isset($ticketData['dynamic_fee'])) {
+                                        $ticketUpdateParams['dynamic_fee'] = $ticketData['dynamic_fee'];
+                                    }
+
+                                    $ticket->update($ticketUpdateParams);
                                 }
                                 // Create new ticket - handle image upload using UploadService
                                 $ticketImagePath = null;
@@ -592,7 +617,8 @@ class EventController
                                     'sale_start' => !empty($ticketData['saleStartDate']) ? $ticketData['saleStartDate'] : null,
                                     'sale_end' => !empty($ticketData['saleEndDate']) ? $ticketData['saleEndDate'] : null,
                                     'ticket_image' => $ticketImagePath,
-                                    'status' => 'active'
+                                    'status' => (isset($ticketData['status']) && in_array($ticketData['status'], [TicketType::STATUS_ACTIVE, TicketType::STATUS_DEACTIVATED])) ? $ticketData['status'] : TicketType::STATUS_ACTIVE,
+                                    'dynamic_fee' => (in_array($user->role, ['admin', 'super_admin']) && isset($ticketData['dynamic_fee'])) ? $ticketData['dynamic_fee'] : 0
                                 ]);
                             }
                         }
@@ -622,7 +648,7 @@ class EventController
 
             // Authorization: Check if user is admin or the event organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $event->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
@@ -718,7 +744,7 @@ class EventController
             }
 
             // Verify organizer ownership
-            if ($user->role !== 'organizer' && $user->role !== 'admin') {
+            if ($user->role !== 'organizer' && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Only organizers can submit events for approval', 403);
             }
 

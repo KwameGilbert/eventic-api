@@ -95,7 +95,7 @@ class UserController
 
             // Authorization: Check if user is admin or the account owner
             $requestUser = $request->getAttribute('user');
-            if ($requestUser->role !== 'admin' && (int)$id !== $requestUser->id) {
+            if (!in_array($requestUser->role, ['admin', 'super_admin']) && (int)$id !== $requestUser->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You can only update your own profile', 403);
             }
             
@@ -127,7 +127,7 @@ class UserController
 
             // Authorization: Check if user is admin or the account owner
             $requestUser = $request->getAttribute('user');
-            if ($requestUser->role !== 'admin' && (int)$id !== $requestUser->id) {
+            if (!in_array($requestUser->role, ['admin', 'super_admin']) && (int)$id !== $requestUser->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You can only delete your own profile', 403);
             }
             

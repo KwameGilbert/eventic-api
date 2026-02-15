@@ -231,13 +231,19 @@ class AwardController
 
             // Get organizer for the user
             $organizer = Organizer::where('user_id', $user->id)->first();
-            if (!$organizer && $user->role !== 'admin') {
+            if (!$organizer && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Only organizers can create awards', 403);
             }
 
-            // Set organizer_id from authenticated user's organizer profile
-            if ($organizer) {
+            // Set organizer_id: allow admins to specify it, otherwise use user's organizer profile
+            if (in_array($user->role, ['admin', 'super_admin']) && isset($data['organizer_id'])) {
+                // organizer_id is already in $data
+            } elseif ($organizer) {
                 $data['organizer_id'] = $organizer->id;
+            }
+
+            if (!isset($data['organizer_id'])) {
+                return ResponseHelper::error($response, 'Organizer ID is required for award creation', 400);
             }
 
             // Validate required fields
@@ -296,7 +302,7 @@ class AwardController
             }
 
             // Permission check: Organizers can only set status to draft or pending
-            if ($user->role !== 'admin' && isset($data['status'])) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && isset($data['status'])) {
                 $allowedOrganizerStatuses = ['draft', 'pending'];
                 if (!in_array($data['status'], $allowedOrganizerStatuses)) {
                     return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish awards.", 403);
@@ -304,11 +310,11 @@ class AwardController
             }
 
             // Permission check: Only admins can mark awards as featured
-            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+            if (isset($data['is_featured']) && $data['is_featured'] && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, "Only admins can mark awards as featured", 403);
             }
             // Force is_featured to false for non-admins
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $data['is_featured'] = false;
             }
 
@@ -393,10 +399,21 @@ class AwardController
 
             // Authorization: Check if user is admin or the award organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
+                }
+            }
+
+            // Constraint: Award code can only be updated by admins, and only if no nominees exist
+            if (isset($data['award_code']) && $data['award_code'] !== $award->award_code) {
+                if (!in_array($user->role, ['admin', 'super_admin'])) {
+                    return ResponseHelper::error($response, 'Only admins can update award codes', 403);
+                }
+                
+                if ($award->nominees()->exists()) {
+                    return ResponseHelper::error($response, 'Award code cannot be updated because nominees already exist for this award', 400);
                 }
             }
 
@@ -458,7 +475,7 @@ class AwardController
 
                 // Permission check: Organizers can only set status to draft or pending
                 // They can also move from pending back to draft
-                if ($user->role !== 'admin') {
+                if (!in_array($user->role, ['admin', 'super_admin'])) {
                     $allowedOrganizerStatuses = [Award::STATUS_DRAFT, Award::STATUS_PENDING];
                     if (!in_array($data['status'], $allowedOrganizerStatuses)) {
                         return ResponseHelper::error($response, "Organizers can only set status to 'draft' or 'pending'. Admins must approve and publish awards.", 403);
@@ -467,12 +484,12 @@ class AwardController
             }
 
             // Permission check: Only admins can mark awards as featured
-            if (isset($data['is_featured']) && $data['is_featured'] && $user->role !== 'admin') {
+            if (isset($data['is_featured']) && $data['is_featured'] && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, "Only admins can mark awards as featured", 403);
             }
 
             // Prevent non-admins from changing is_featured value
-            if ($user->role !== 'admin' && isset($data['is_featured'])) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && isset($data['is_featured'])) {
                 unset($data['is_featured']); // Remove from update data
             }
 
@@ -535,7 +552,7 @@ class AwardController
 
             // Authorization: Check if user is admin or the award organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
@@ -655,7 +672,7 @@ class AwardController
             }
 
             // Verify organizer ownership
-            if ($userRole !== 'organizer') {
+            if ($userRole !== 'organizer' && !in_array($userRole, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Only organizers can modify award settings', 403);
             }
 
@@ -693,7 +710,7 @@ class AwardController
             }
 
             // Verify organizer ownership
-            if ($user->role !== 'organizer' && $user->role !== 'admin') {
+            if ($user->role !== 'organizer' && !in_array($user->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Only organizers can submit awards for approval', 403);
             }
 
@@ -740,4 +757,3 @@ class AwardController
         }
     }
 }
-

@@ -99,7 +99,7 @@ class AttendeeController
 
             // Authorization: Check if user is admin or the profile owner
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin' && $attendee->user_id !== $user->id) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && $attendee->user_id !== $user->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
 
@@ -126,7 +126,7 @@ class AttendeeController
 
             // Authorization: Check if user is admin or the profile owner
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin' && $attendee->user_id !== $user->id) {
+            if (!in_array($user->role, ['admin', 'super_admin']) && $attendee->user_id !== $user->id) {
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
 

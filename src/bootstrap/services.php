@@ -157,6 +157,10 @@ return function ($container) {
     $container->set(AwardVoteController::class, function () {
         return new AwardVoteController();
     });
+
+    $container->set(AdminController::class, function ($container) {
+        return new AdminController($container->get(AuthService::class));
+    });
     
     // ==================== MIDDLEWARES ====================
     

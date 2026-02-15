@@ -70,7 +70,7 @@ class EventImageController
 
             // Authorization: Check if user is admin or the event organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = \App\Models\Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $event->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
@@ -137,7 +137,7 @@ class EventImageController
 
             // Authorization: Check if user is admin or the event organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $event = Event::find($image->event_id);
                 $organizer = \App\Models\Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $event->organizer_id) {

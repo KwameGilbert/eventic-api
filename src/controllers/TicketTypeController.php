@@ -102,7 +102,7 @@ class TicketTypeController
             }
 
             // Authorization: Verify user owns the event they're creating tickets for
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $event->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this event', 403);
@@ -112,8 +112,17 @@ class TicketTypeController
             // Set initial remaining quantity equal to total quantity
             $data['remaining'] = $data['quantity'];
 
-            // Set default status
-            if (!isset($data['status'])) {
+            // Authorization & Data Sanitization: Only admins can set dynamic_fee
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
+                unset($data['dynamic_fee']);
+            }
+
+            // Set final status - only allow active or deactivated
+            if (isset($data['status'])) {
+                if (!in_array($data['status'], [TicketType::STATUS_ACTIVE, TicketType::STATUS_DEACTIVATED])) {
+                    $data['status'] = TicketType::STATUS_ACTIVE;
+                }
+            } else {
                 $data['status'] = TicketType::STATUS_ACTIVE;
             }
 
@@ -181,11 +190,19 @@ class TicketTypeController
 
             // Authorization: Check if user is admin or the event organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $ticketType->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this ticket type', 403);
                 }
+                
+                // Organizers cannot update dynamic_fee
+                unset($data['dynamic_fee']);
+            }
+
+            // Validate status if provided - only active/deactivated allowed
+            if (isset($data['status']) && !in_array($data['status'], [TicketType::STATUS_ACTIVE, TicketType::STATUS_DEACTIVATED])) {
+                unset($data['status']);
             }
 
             // If quantity is updated, adjust remaining accordingly
@@ -263,7 +280,7 @@ class TicketTypeController
 
             // Authorization: Check if user is admin or the event organizer
             $user = $request->getAttribute('user');
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $ticketType->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this ticket type', 403);

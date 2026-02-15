@@ -50,33 +50,27 @@ class AwardNominee extends Model
         // Auto-generate nominee_code when creating a new nominee
         static::creating(function ($nominee) {
             if (empty($nominee->nominee_code)) {
-                $nominee->nominee_code = self::generateUniqueCode();
+                $nominee->nominee_code = self::generateNomineeCode($nominee->award_id);
             }
         });
     }
 
     /**
-     * Generate a unique 4-character alphanumeric code.
+     * Generate a nominee code using award code and sequence number.
+     * 
+     * @param int $awardId
+     * @return string
      */
-    public static function generateUniqueCode(): string
+    public static function generateNomineeCode(int $awardId): string
     {
-        $characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluded I, O, 0, 1 to avoid confusion
-        $maxAttempts = 100;
+        $award = Award::find($awardId);
+        $awardCode = $award ? $award->award_code : 'AW'; // Fallback to AW
         
-        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
-            $code = '';
-            for ($i = 0; $i < 4; $i++) {
-                $code .= $characters[random_int(0, strlen($characters) - 1)];
-            }
-            
-            // Check if code already exists
-            if (!self::where('nominee_code', $code)->exists()) {
-                return $code;
-            }
-        }
+        // Use count + 1 for the next number
+        $count = self::where('award_id', $awardId)->count();
+        $nextNumber = $count + 1;
         
-        // Fallback: use timestamp-based code if random generation fails
-        return strtoupper(substr(base_convert((string)time(), 10, 36), -4));
+        return $awardCode . $nextNumber;
     }
 
     /**

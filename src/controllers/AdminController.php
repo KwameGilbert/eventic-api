@@ -14,11 +14,14 @@ use App\Models\AwardVote;
 use App\Models\Ticket;
 use App\Models\PayoutRequest;
 use App\Models\OrganizerBalance;
+use App\Models\Attendee;
+use App\Services\AuthService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Illuminate\Support\Carbon;
 use Exception;
+use Respect\Validation\Validator as v;
 
 /**
  * AdminController
@@ -26,6 +29,12 @@ use Exception;
  */
 class AdminController
 {
+    private AuthService $authService;
+
+    public function __construct(AuthService $authService)
+    {
+        $this->authService = $authService;
+    }
     /**
      * Get admin dashboard overview
      * GET /v1/admin/dashboard
@@ -36,7 +45,7 @@ class AdminController
             $jwtUser = $request->getAttribute('user');
 
             // Verify admin role
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -289,7 +298,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -319,6 +328,80 @@ class AdminController
     }
 
     /**
+     * Create new user (Admin/Super Admin only)
+     * POST /v1/admin/users
+     */
+    public function createUser(Request $request, Response $response): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Verify admin role
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $data = $request->getParsedBody();
+
+            // Basic validation
+            if (empty($data['name']) || empty($data['email']) || empty($data['password']) || empty($data['role'])) {
+                return ResponseHelper::error($response, 'Name, email, password, and role are required', 400);
+            }
+
+            // Check if user already exists
+            $existingUser = User::where('email', $data['email'])->first();
+            if ($existingUser) {
+                return ResponseHelper::error($response, 'Account already exists with this email', 409);
+            }
+
+            // Create user
+            $user = User::create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'phone' => $data['phone'] ?? null,
+                'password' => $this->authService->hashPassword($data['password']),
+                'role' => $data['role'],
+                'status' => $data['status'] ?? User::STATUS_ACTIVE,
+                'email_verified' => isset($data['email_verified']) ? filter_var($data['email_verified'], FILTER_VALIDATE_BOOLEAN) : true,
+                'first_login' => true
+            ]);
+
+            // Create role-based profile if needed
+            if ($user->role === User::ROLE_ATTENDEE) {
+                $nameParts = explode(' ', $user->name, 2);
+                $firstName = $nameParts[0];
+                $lastName = $nameParts[1] ?? '';
+
+                Attendee::create([
+                    'user_id' => $user->id,
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                ]);
+            } elseif ($user->role === User::ROLE_ORGANIZER) {
+                Organizer::create([
+                    'user_id' => $user->id,
+                    'organization_name' => $data['organization_name'] ?? $user->name,
+                ]);
+            }
+
+            return ResponseHelper::success($response, 'User created successfully', [
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'status' => $user->status
+                ]
+            ], 201);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to create user', 500, $e->getMessage());
+        }
+    }
+
+    /**
      * Approve pending event
      * PUT /v1/admin/events/{id}/approve
      */
@@ -327,7 +410,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -360,7 +443,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -393,7 +476,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -426,7 +509,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -463,7 +546,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -516,7 +599,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -561,7 +644,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -594,8 +677,8 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
-                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            if ($jwtUser->role !== 'super_admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Super admin access required.', 403);
             }
 
             $eventId = (int) $args['id'];
@@ -635,7 +718,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -684,18 +767,29 @@ class AdminController
                 'title' => $event->title,
                 'slug' => $event->slug,
                 'description' => $event->description,
+                'event_type_id' => $event->event_type_id,
                 'organizer_id' => $event->organizer_id,
                 'organizer_name' => $event->organizer->user->name ?? 'N/A',
                 'organizer_email' => $event->organizer->user->email ?? null,
                 'venue_name' => $event->venue_name,
                 'address' => $event->address,
                 'city' => $event->city,
+                'region' => $event->region,
                 'country' => $event->country,
+                'map_url' => $event->map_url,
                 'banner_image' => $event->banner_image,
                 'start_time' => $event->start_time ? $event->start_time->toIso8601String() : null,
                 'end_time' => $event->end_time ? $event->end_time->toIso8601String() : null,
                 'status' => $event->status,
                 'is_featured' => (bool) $event->is_featured,
+                'audience' => $event->audience,
+                'language' => $event->language,
+                'website' => $event->website,
+                'facebook' => $event->facebook,
+                'twitter' => $event->twitter,
+                'instagram' => $event->instagram,
+                'phone' => $event->phone,
+                'video_url' => $event->video_url,
                 'platform_fee_percentage' => (float) ($event->admin_share_percent ?? 1.5),
                 'tickets_sold' => $ticketsSold,
                 'total_revenue' => round($totalRevenue, 2),
@@ -720,7 +814,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -736,15 +830,27 @@ class AdminController
             // Update allowed fields
             if (isset($data['title'])) $event->title = $data['title'];
             if (isset($data['description'])) $event->description = $data['description'];
+            if (isset($data['event_type_id'])) $event->event_type_id = (int) $data['event_type_id'];
             if (isset($data['venue_name'])) $event->venue_name = $data['venue_name'];
             if (isset($data['address'])) $event->address = $data['address'];
             if (isset($data['city'])) $event->city = $data['city'];
+            if (isset($data['region'])) $event->region = $data['region'];
             if (isset($data['country'])) $event->country = $data['country'];
+            if (isset($data['map_url'])) $event->map_url = $data['map_url'];
             if (isset($data['banner_image'])) $event->banner_image = $data['banner_image'];
             if (isset($data['start_time'])) $event->start_time = $data['start_time'];
             if (isset($data['end_time'])) $event->end_time = $data['end_time'];
             if (isset($data['status'])) $event->status = $data['status'];
             if (isset($data['is_featured'])) $event->is_featured = filter_var($data['is_featured'], FILTER_VALIDATE_BOOLEAN);
+            if (isset($data['audience'])) $event->audience = $data['audience'];
+            if (isset($data['language'])) $event->language = $data['language'];
+            if (isset($data['website'])) $event->website = $data['website'];
+            if (isset($data['facebook'])) $event->facebook = $data['facebook'];
+            if (isset($data['twitter'])) $event->twitter = $data['twitter'];
+            if (isset($data['instagram'])) $event->instagram = $data['instagram'];
+            if (isset($data['phone'])) $event->phone = $data['phone'];
+            if (isset($data['video_url'])) $event->video_url = $data['video_url'];
+            
             if (isset($data['platform_fee_percentage'])) {
                 $event->admin_share_percent = (float) $data['platform_fee_percentage'];
             }
@@ -770,7 +876,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -835,7 +941,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -880,7 +986,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -913,8 +1019,8 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
-                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            if ($jwtUser->role !== 'super_admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Super admin access required.', 403);
             }
 
             $awardId = (int) $args['id'];
@@ -954,7 +1060,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -1030,11 +1136,24 @@ class AdminController
                 'organizer_name' => $award->organizer->user->name ?? 'N/A',
                 'organizer_email' => $award->organizer->user->email ?? null,
                 'banner_image' => $award->banner_image,
+                'venue_name' => $award->venue_name,
+                'address' => $award->address,
+                'city' => $award->city,
+                'region' => $award->region,
+                'country' => $award->country,
+                'map_url' => $award->map_url,
                 'ceremony_date' => $award->ceremony_date ? $award->ceremony_date->toIso8601String() : null,
                 'voting_start' => $award->voting_start ? $award->voting_start->toIso8601String() : null,
                 'voting_end' => $award->voting_end ? $award->voting_end->toIso8601String() : null,
                 'status' => $award->status,
                 'is_featured' => (bool) $award->is_featured,
+                'show_results' => (bool) $award->show_results,
+                'website' => $award->website,
+                'facebook' => $award->facebook,
+                'twitter' => $award->twitter,
+                'instagram' => $award->instagram,
+                'phone' => $award->phone,
+                'video_url' => $award->video_url,
                 'platform_fee_percentage' => (float) ($award->admin_share_percent ?? 5.0),
                 'categories_count' => $award->categories->count(),
                 'nominees_count' => $totalNominees,
@@ -1060,7 +1179,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -1077,11 +1196,25 @@ class AdminController
             if (isset($data['title'])) $award->title = $data['title'];
             if (isset($data['description'])) $award->description = $data['description'];
             if (isset($data['banner_image'])) $award->banner_image = $data['banner_image'];
+            if (isset($data['venue_name'])) $award->venue_name = $data['venue_name'];
+            if (isset($data['address'])) $award->address = $data['address'];
+            if (isset($data['city'])) $award->city = $data['city'];
+            if (isset($data['region'])) $award->region = $data['region'];
+            if (isset($data['country'])) $award->country = $data['country'];
+            if (isset($data['map_url'])) $award->map_url = $data['map_url'];
             if (isset($data['ceremony_date'])) $award->ceremony_date = $data['ceremony_date'];
             if (isset($data['voting_start'])) $award->voting_start = $data['voting_start'];
             if (isset($data['voting_end'])) $award->voting_end = $data['voting_end'];
             if (isset($data['status'])) $award->status = $data['status'];
             if (isset($data['is_featured'])) $award->is_featured = filter_var($data['is_featured'], FILTER_VALIDATE_BOOLEAN);
+            if (isset($data['show_results'])) $award->show_results = filter_var($data['show_results'], FILTER_VALIDATE_BOOLEAN);
+            if (isset($data['website'])) $award->website = $data['website'];
+            if (isset($data['facebook'])) $award->facebook = $data['facebook'];
+            if (isset($data['twitter'])) $award->twitter = $data['twitter'];
+            if (isset($data['instagram'])) $award->instagram = $data['instagram'];
+            if (isset($data['phone'])) $award->phone = $data['phone'];
+            if (isset($data['video_url'])) $award->video_url = $data['video_url'];
+            
             if (isset($data['platform_fee_percentage'])) {
                 $award->admin_share_percent = (float) $data['platform_fee_percentage'];
             }
@@ -1098,12 +1231,12 @@ class AdminController
      * Update user status (activate, suspend, deactivate)
      * PUT /v1/admin/users/{id}/status
      */
-    public function updateUserStatus(Request $request, Response $response, array $args): Response
+     public function updateUserStatus(Request $request, Response $response, array $args): Response
     {
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -1127,6 +1260,11 @@ class AdminController
                 return ResponseHelper::error($response, 'You cannot change your own status', 400);
             }
 
+            // Only super admin can change another super admin's status
+            if ($user->role === User::ROLE_SUPER_ADMIN && $jwtUser->role !== User::ROLE_SUPER_ADMIN) {
+                return ResponseHelper::error($response, 'Unauthorized. Only super admin can modify a super admin record.', 403);
+            }
+
             $user->status = $status;
             $user->save();
 
@@ -1145,22 +1283,27 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
             $userId = (int) $args['id'];
+            $user = User::find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Only super admin can reset another super admin's password
+            if ($user->role === User::ROLE_SUPER_ADMIN && $jwtUser->role !== User::ROLE_SUPER_ADMIN) {
+                return ResponseHelper::error($response, 'Unauthorized. Only super admin can modify a super admin record.', 403);
+            }
+
             $data = $request->getParsedBody();
             $newPassword = $data['password'] ?? null;
 
             if (!$newPassword || strlen($newPassword) < 6) {
                 return ResponseHelper::error($response, 'Password must be at least 6 characters long', 400);
-            }
-
-            $user = User::find($userId);
-
-            if (!$user) {
-                return ResponseHelper::error($response, 'User not found', 404);
             }
 
             // Update password (will be auto-hashed by User model mutator)
@@ -1185,7 +1328,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 
@@ -1194,15 +1337,25 @@ class AdminController
             $role = $data['role'] ?? null;
 
             // Validate role
-            $validRoles = [User::ROLE_ADMIN, User::ROLE_ORGANIZER, User::ROLE_ATTENDEE, User::ROLE_POS, User::ROLE_SCANNER];
+            $validRoles = [User::ROLE_SUPER_ADMIN, User::ROLE_ADMIN, User::ROLE_ORGANIZER, User::ROLE_ATTENDEE, User::ROLE_POS, User::ROLE_SCANNER];
             if (!in_array($role, $validRoles)) {
                 return ResponseHelper::error($response, 'Invalid role', 400);
+            }
+
+            // Only super admin can assign super_admin role
+            if ($role === User::ROLE_SUPER_ADMIN && $jwtUser->role !== User::ROLE_SUPER_ADMIN) {
+                return ResponseHelper::error($response, 'Unauthorized. Only super admin can assign the super admin role.', 403);
             }
 
             $user = User::find($userId);
 
             if (!$user) {
                 return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Only super admin can change another super admin's role
+            if ($user->role === User::ROLE_SUPER_ADMIN && $jwtUser->role !== User::ROLE_SUPER_ADMIN) {
+                return ResponseHelper::error($response, 'Unauthorized. Only super admin can modify a super admin record.', 403);
             }
 
             // Prevent admin from changing their own role
@@ -1241,8 +1394,8 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
-                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            if ($jwtUser->role !== 'super_admin') {
+                return ResponseHelper::error($response, 'Unauthorized. Super admin access required.', 403);
             }
 
             $userId = (int) $args['id'];
@@ -1250,6 +1403,11 @@ class AdminController
 
             if (!$user) {
                 return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            // Only super admin can delete another super admin
+            if ($user->role === User::ROLE_SUPER_ADMIN && $jwtUser->role !== User::ROLE_SUPER_ADMIN) {
+                return ResponseHelper::error($response, 'Unauthorized. Only super admin can delete a super admin record.', 403);
             }
 
             // Prevent admin from deleting themselves
@@ -1581,7 +1739,7 @@ class AdminController
         try {
             $jwtUser = $request->getAttribute('user');
 
-            if ($jwtUser->role !== 'admin') {
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
                 return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
             }
 

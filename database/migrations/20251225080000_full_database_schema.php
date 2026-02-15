@@ -36,7 +36,7 @@ final class FullDatabaseSchema extends AbstractMigration
                 ->addColumn('password', 'string', ['limit' => 255, 'null' => false])
                 ->addColumn('remember_token', 'string', ['limit' => 100, 'null' => true])
                 ->addColumn('role', 'enum', [
-                    'values' => ['admin', 'organizer', 'attendee', 'pos', 'scanner'],
+                    'values' => ['admin', 'super_admin', 'organizer', 'attendee', 'pos', 'scanner'],
                     'default' => 'attendee',
                     'null' => false
                 ])

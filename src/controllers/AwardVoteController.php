@@ -94,6 +94,7 @@ class AwardVoteController
                 'voter_name' => $data['voter_name'] ?? null,
                 'voter_email' => $data['voter_email'],
                 'voter_phone' => $data['voter_phone'] ?? null,
+                'nominee_code' => $nominee->nominee_code,
             ]);
 
             // Return payment information
@@ -383,7 +384,7 @@ class AwardVoteController
             }
 
             // Authorization: Check if user owns the award
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
@@ -495,7 +496,7 @@ class AwardVoteController
             }
 
             // Authorization
-            if ($user->role !== 'admin') {
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
                 $organizer = Organizer::where('user_id', $user->id)->first();
                 if (!$organizer || $organizer->id !== $award->organizer_id) {
                     return ResponseHelper::error($response, 'Unauthorized', 403);

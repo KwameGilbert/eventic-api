@@ -25,9 +25,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property float $payment_fee
  * @property string $status
  * @property string $reference
- * @property string|null $voter_name
- * @property string|null $voter_email
  * @property string|null $voter_phone
+ * @property string|null $nominee_code
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -54,6 +53,7 @@ class AwardVote extends Model
         'voter_name',
         'voter_email',
         'voter_phone',
+        'nominee_code',
     ];
 
     protected $casts = [
