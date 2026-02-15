@@ -1230,6 +1230,91 @@ class AdminController
     }
 
     /**
+     * Update user profile (Admin/Super Admin only)
+     * PUT /v1/admin/users/{id}
+     */
+    public function updateUser(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+
+            // Verify admin role
+            if (!in_array($jwtUser->role, ['admin', 'super_admin'])) {
+                return ResponseHelper::error($response, 'Unauthorized. Admin access required.', 403);
+            }
+
+            $userId = (int) $args['id'];
+            $user = User::with(['organizer', 'attendee'])->find($userId);
+
+            if (!$user) {
+                return ResponseHelper::error($response, 'User not found', 404);
+            }
+
+            $data = $request->getParsedBody();
+
+            // Update basic user info
+            if (isset($data['name'])) $user->name = $data['name'];
+            if (isset($data['email'])) {
+                // Check if email is already taken by another user
+                $existingUser = User::where('email', $data['email'])->where('id', '!=', $userId)->first();
+                if ($existingUser) {
+                    return ResponseHelper::error($response, 'Email is already in use', 409);
+                }
+                $user->email = $data['email'];
+            }
+            if (isset($data['phone'])) $user->phone = $data['phone'];
+            
+            $user->save();
+
+            // Role-specific profile updates
+            if ($user->role === 'organizer') {
+                $organizer = $user->organizer;
+                if (!$organizer) {
+                    $organizer = new Organizer(['user_id' => $user->id]);
+                }
+                
+                $organizerFields = [
+                    'organization_name', 'bio', 'social_facebook', 
+                    'social_instagram', 'social_twitter', 'website',
+                    'business_name', 'business_type', 'description',
+                    'address', 'city', 'region', 'country'
+                ];
+
+                foreach ($organizerFields as $field) {
+                    if (isset($data[$field])) {
+                        $organizer->$field = $data[$field];
+                    }
+                }
+                $organizer->save();
+            } elseif ($user->role === 'attendee') {
+                $attendee = $user->attendee;
+                if (!$attendee) {
+                    $attendee = new Attendee(['user_id' => $user->id, 'email' => $user->email]);
+                }
+
+                $attendeeFields = [
+                    'first_name', 'last_name', 'phone', 'bio', 
+                    'date_of_birth', 'gender', 'interests'
+                ];
+
+                foreach ($attendeeFields as $field) {
+                    if (isset($data[$field])) {
+                        $attendee->$field = $data[$field];
+                    }
+                }
+                $attendee->save();
+            }
+
+            return ResponseHelper::success($response, 'User profile updated successfully', [
+                'user' => $user->fresh(['organizer', 'attendee'])
+            ]);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update user', 500, $e->getMessage());
+        }
+    }
+
+    /**
      * Update user status (activate, suspend, deactivate)
      * PUT /v1/admin/users/{id}/status
      */
