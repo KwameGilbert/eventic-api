@@ -319,7 +319,9 @@ class AdminController
                 });
             }
 
-            $users = $query->orderBy('created_at', 'desc')->get();
+            $users = $query->with(['organizer', 'attendee'])
+                ->orderBy('created_at', 'desc')
+                ->get();
 
             return ResponseHelper::success($response, 'Users fetched successfully', ['users' => $users]);
         } catch (Exception $e) {
