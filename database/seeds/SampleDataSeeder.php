@@ -101,11 +101,11 @@ class SampleDataSeeder extends AbstractSeed
                 'updated_at' => date('Y-m-d H:i:s'),
             ],
             [
-                'name' => 'John Mensah',
-                'email' => 'john@example.com',
-                'phone' => '+233541000003',
+                'name' => 'Apex Productions',
+                'email' => 'apex@eventic.com',
+                'phone' => '+233541000010',
                 'password' => $passwordHash,
-                'role' => 'attendee',
+                'role' => 'organizer',
                 'status' => 'active',
                 'email_verified' => 1,
                 'email_verified_at' => date('Y-m-d H:i:s'),
@@ -113,11 +113,11 @@ class SampleDataSeeder extends AbstractSeed
                 'updated_at' => date('Y-m-d H:i:s'),
             ],
             [
-                'name' => 'Ama Serwaa',
-                'email' => 'ama@example.com',
-                'phone' => '+233541000004',
+                'name' => 'Silver Screen Events',
+                'email' => 'silver@eventic.com',
+                'phone' => '+233541000011',
                 'password' => $passwordHash,
-                'role' => 'attendee',
+                'role' => 'organizer',
                 'status' => 'active',
                 'email_verified' => 1,
                 'email_verified_at' => date('Y-m-d H:i:s'),
@@ -126,8 +126,32 @@ class SampleDataSeeder extends AbstractSeed
             ],
         ];
 
+        // Add 30 random attendees
+        $firstNames = ['Kofi', 'Ama', 'Kwame', 'Akosua', 'Yaw', 'Adwoa', 'Kojo', 'Abena', 'Kwaku', 'Akua', 'Ekow', 'Esi', 'Samuel', 'Elizabeth', 'Daniel', 'Mary', 'Isaac', 'Rebecca', 'Joseph', 'Sarah'];
+        $lastNames = ['Mensah', 'Owusu', 'Ansah', 'Oppong', 'Adu', 'Appiah', 'Asare', 'Boateng', 'Osei', 'Sarpong', 'Quansah', 'Danquah', 'Kukah', 'Nyarko', 'Tetteh', 'Addae', 'Bimpong', 'Gyamfi', 'Donkor', 'Antwi'];
+        
+        for ($i = 1; $i <= 30; $i++) {
+            $firstName = $firstNames[array_rand($firstNames)];
+            $lastName = $lastNames[array_rand($lastNames)];
+            $name = "$firstName $lastName";
+            $email = strtolower($firstName . "." . $lastName . $i . "@example.com");
+            
+            $users[] = [
+                'name' => $name,
+                'email' => $email,
+                'phone' => '+23354' . str_pad((string)(2000000 + $i), 7, '0', STR_PAD_LEFT),
+                'password' => $passwordHash,
+                'role' => 'attendee',
+                'status' => 'active',
+                'email_verified' => 1,
+                'email_verified_at' => date('Y-m-d H:i:s'),
+                'created_at' => date('Y-m-d H:i:s', strtotime("-" . rand(1, 365) . " days")),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
         $this->table('users')->insert($users)->save();
-        echo "✅ Users seeded\n";
+        echo "✅ Users seeded (4 Organizers, 30 Attendees)\n";
     }
 
     private function seedOrganizers(): void

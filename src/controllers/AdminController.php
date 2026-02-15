@@ -1275,9 +1275,7 @@ class AdminController
                 
                 $organizerFields = [
                     'organization_name', 'bio', 'social_facebook', 
-                    'social_instagram', 'social_twitter', 'website',
-                    'business_name', 'business_type', 'description',
-                    'address', 'city', 'region', 'country'
+                    'social_instagram', 'social_twitter'
                 ];
 
                 foreach ($organizerFields as $field) {
@@ -1293,8 +1291,7 @@ class AdminController
                 }
 
                 $attendeeFields = [
-                    'first_name', 'last_name', 'phone', 'bio', 
-                    'date_of_birth', 'gender', 'interests'
+                    'first_name', 'last_name', 'phone', 'bio'
                 ];
 
                 foreach ($attendeeFields as $field) {
