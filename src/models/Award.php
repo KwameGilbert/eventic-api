@@ -362,16 +362,9 @@ class Award extends Model
      */
     public function getTotalRevenue(): float
     {
-        $total = 0;
-        
-        foreach ($this->categories as $category) {
-            $categoryVotes = $category->votes()
-                                      ->where('status', 'paid')
-                                      ->sum('number_of_votes');
-            $total += $categoryVotes * $category->cost_per_vote;
-        }
-        
-        return $total;
+        return (float) $this->votes()
+                    ->where('status', 'paid')
+                    ->sum('gross_amount');
     }
 
     /**
@@ -406,6 +399,29 @@ class Award extends Model
         // Load relationships
         $this->load(['organizer.user', 'categories.nominees', 'images']);
         
+        // Eager load ALL vote counts for the award in ONE query to avoid N+1 in maps
+        $voteStats = $this->votes()
+            ->where('status', 'paid')
+            ->selectRaw('category_id, nominee_id, SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue')
+            ->groupBy('category_id', 'nominee_id')
+            ->get();
+            
+        $nomineeVotesMap = [];
+        $nomineeRevenueMap = [];
+        $categoryVotesMap = [];
+        $categoryRevenueMap = [];
+        $awardTotalVotes = 0;
+        $awardTotalRevenue = 0;
+        
+        foreach ($voteStats as $stat) {
+            $nomineeVotesMap[$stat->nominee_id] = (int) $stat->total_votes;
+            $nomineeRevenueMap[$stat->nominee_id] = (float) $stat->total_revenue;
+            $categoryVotesMap[$stat->category_id] = ($categoryVotesMap[$stat->category_id] ?? 0) + (int) $stat->total_votes;
+            $categoryRevenueMap[$stat->category_id] = ($categoryRevenueMap[$stat->category_id] ?? 0) + (float) $stat->total_revenue;
+            $awardTotalVotes += (int) $stat->total_votes;
+            $awardTotalRevenue += (float) $stat->total_revenue;
+        }
+
         // Check if user is organizer or admin
         $isOrganizerOrAdmin = in_array($userRole, ['organizer', 'admin', 'super_admin']);
         
@@ -438,7 +454,7 @@ class Award extends Model
             'views' => $this->views,
             'voting_status' => $this->voting_status,
 
-            'categories' => $this->categories->map(function ($category) use ($isOrganizerOrAdmin) {
+            'categories' => $this->categories->map(function ($category) use ($isOrganizerOrAdmin, $nomineeVotesMap, $nomineeRevenueMap, $categoryVotesMap, $categoryRevenueMap) {
                 $categoryData = [
                     'id' => $category->id,
                     'name' => $category->name,
@@ -454,24 +470,27 @@ class Award extends Model
                 ];
 
                 if ($isOrganizerOrAdmin) {
-                    $categoryData['total_votes'] = $category->getTotalVotes();
-                    $categoryData['revenue'] = $category->getTotalVotes() * $category->cost_per_vote;
+                    $categoryData['total_votes'] = $categoryVotesMap[$category->id] ?? 0;
+                    $categoryData['revenue'] = (float) ($categoryRevenueMap[$category->id] ?? 0);
                     $categoryData['internal_voting_status'] = $category->voting_status;
                 }
 
-                $categoryData['nominees'] = $category->nominees->map(function ($nominee) use ($isOrganizerOrAdmin) {
+                $categoryData['nominees'] = $category->nominees->map(function ($nominee) use ($isOrganizerOrAdmin, $nomineeVotesMap, $nomineeRevenueMap) {
                     $nomineeData = [
                         'id' => $nominee->id,
                         'nominee_code' => $nominee->nominee_code,
                         'name' => $nominee->name,
                         'description' => $nominee->description,
                         'image' => $nominee->image,
-                        'display_order' => $nominee->display_order,
+                        'display_order' => $nominee->display_order
                     ];
                     
-                    // Include vote count for everyone if show_results is true OR if is organizer/admin
+                    // Include vote count and revenue for everyone if show_results is true OR if is organizer/admin
                     if ($this->show_results || $isOrganizerOrAdmin) {
-                        $nomineeData['total_votes'] = $nominee->getTotalVotes();
+                        $nomineeData['total_votes'] = $nomineeVotesMap[$nominee->id] ?? 0;
+                        if ($isOrganizerOrAdmin) {
+                            $nomineeData['revenue'] = $nomineeRevenueMap[$nominee->id] ?? 0;
+                        }
                     }
                     
                     return $nomineeData;
@@ -510,16 +529,16 @@ class Award extends Model
 
         // Add vote statistics - only for organizers/admins
         if ($isOrganizerOrAdmin) {
-            // Organizers and admins always see stats
-            $details['total_votes'] = $this->getTotalVotes();
-            $details['total_revenue'] = $this->getTotalRevenue();
+            // Use pre-calculated bulk stats
+            $details['total_votes'] = $awardTotalVotes;
+            $details['total_revenue'] = $awardTotalRevenue;
 
             // Construction of stats object for AwardStats component
             $details['stats'] = [
                 'total_categories' => $this->categories->count(),
-                'total_nominees' => $this->nominees()->count(),
-                'total_votes' => $details['total_votes'],
-                'revenue' => $details['total_revenue'],
+                'total_nominees' => $this->nominees->count(),
+                'total_votes' => $awardTotalVotes,
+                'revenue' => $awardTotalRevenue,
                 'unique_voters' => $this->getUniqueVotersCount(),
             ];
         }
@@ -544,8 +563,8 @@ class Award extends Model
             'image' => $this->banner_image ?? '',
             'status' => $this->status,
             'is_featured' => $this->is_featured,
-            'categories_count' => $this->categories()->count(),
-            'total_votes' => $this->getTotalVotes(),
+            'categories_count' => $this->categories_count ?? $this->categories()->count(),
+            'total_votes' => (int) ($this->votes_sum_number_of_votes ?? $this->getTotalVotes()),
         ];
     }
 

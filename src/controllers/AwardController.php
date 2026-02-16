@@ -54,7 +54,11 @@ class AwardController
     {
         try {
             $queryParams = $request->getQueryParams();
-            $query = Award::with(['categories.nominees', 'organizer.user', 'images']);
+            $query = Award::with(['organizer.user', 'images'])
+                ->withCount('categories')
+                ->withSum(['votes as votes_sum_number_of_votes' => function($q) {
+                    $q->where('status', 'paid');
+                }], 'number_of_votes');
 
             // Filter by status (default to published for public list)
             if (isset($queryParams['status'])) {

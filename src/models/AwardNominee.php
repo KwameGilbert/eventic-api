@@ -130,13 +130,9 @@ class AwardNominee extends Model
      */
     public function getTotalRevenue(?float $costPerVote = null): float
     {
-        if ($costPerVote === null) {
-            $category = $this->category;
-            $costPerVote = $category ? $category->cost_per_vote : 0;
-        }
-
-        $totalVotes = $this->getTotalVotes();
-        return $totalVotes * $costPerVote;
+        return (float) $this->votes()
+                    ->where('status', 'paid')
+                    ->sum('gross_amount');
     }
 
     /**

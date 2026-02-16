@@ -93,8 +93,9 @@ class AwardCategory extends Model
      */
     public function getTotalRevenue(): float
     {
-        $totalVotes = $this->getTotalVotes();
-        return $totalVotes * $this->cost_per_vote;
+        return (float) $this->votes()
+                    ->where('status', 'paid')
+                    ->sum('gross_amount');
     }
 
     /**
