@@ -274,12 +274,21 @@ class Event extends Model
             'mapUrl' => $this->map_url,
             'tags' => $this->tags ?? [],
             'ticketTypes' => $this->ticketTypes->map(function ($tt) {
+                $isSaleActive = $tt->isSaleActive();
+                $basePrice = $tt->getCurrentPrice();
+                $effectivePrice = $tt->getEffectivePrice();
+                
                 return [
                     'id' => $tt->id,
                     'name' => $tt->name,
                     'price' => (float) $tt->price,
                     'salePrice' => $tt->sale_price ? (float) $tt->sale_price : null,
+                    'basePrice' => $basePrice,
+                    'effectivePrice' => $effectivePrice,
+                    'isSaleActive' => $isSaleActive,
                     'onSale' => $tt->isAvailable(),
+                    'dynamicFeePercent' => (float) ($tt->dynamic_fee ?? 0),
+                    'dynamicMarkupAmount' => $tt->getDynamicFeeAmount(),
                     'availableQuantity' => $tt->remaining,
                     'maxPerAttendee' => $tt->max_per_user,
                     'description' => $tt->description,

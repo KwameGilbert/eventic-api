@@ -56,6 +56,7 @@ class OrderController
             }
 
             $totalAmount = 0;
+            $dynamicFeesTotal = 0;
             $orderItemsData = [];
 
             foreach ($data['items'] as $item) {
@@ -74,7 +75,7 @@ class OrderController
                                               ->where('event_id', $ticketType->event_id)
                                               ->exists();
                      if (!$assigned) {
-                         throw new Exception("POS user is not assigned to sell tickets for event {$ticketType->event_id}");
+                          throw new Exception("POS user is not assigned to sell tickets for event {$ticketType->event_id}");
                      }
                 }
 
@@ -82,40 +83,62 @@ class OrderController
                     throw new Exception("Not enough tickets remaining for {$ticketType->name}");
                 }
 
-                $itemTotal = $ticketType->price * $item['quantity'];
+                // Automatic Price Switching (Sale Price vs Regular Price)
+                $baseUnitPrice = $ticketType->getCurrentPrice();
+                $effectiveUnitPrice = $ticketType->getEffectivePrice();
+                $dynamicMarkupPerTicket = $ticketType->getDynamicFeeAmount();
+                
+                $itemTotal = $effectiveUnitPrice * $item['quantity'];
+                $baseTotalForItem = $baseUnitPrice * $item['quantity'];
                 $totalAmount += $itemTotal;
+                
+                // Track dynamic fees separately if needed for accounting
+                $dynamicFeesTotal += $dynamicMarkupPerTicket * $item['quantity'];
 
                 // Get event for revenue share calculation
                 $event = Event::find($ticketType->event_id);
-                $revenueSplit = $event ? $event->calculateRevenueSplit($itemTotal) : [
-                    'admin_share_percent' => 10,
-                    'organizer_amount' => $itemTotal * 0.9,
-                    'admin_amount' => $itemTotal * 0.1 - ($itemTotal * 0.015),
-                    'payment_fee' => $itemTotal * 0.015,
-                ];
+                $adminSharePercent = $event ? $event->getAdminSharePercent() : 10;
+                $organizerSharePercent = 100 - $adminSharePercent;
+                
+                // Revenue split based on BASE price
+                $organizerAmount = round($baseTotalForItem * ($organizerSharePercent / 100), 2);
+                
+                // Admin gets: (Base * AdminShare%) + (Dynamic Markup Amount)
+                // Note: Admin will absorb the payment fee from their total share at the end of the order summary
+                // But for the OrderItem, we calculate the gross share
+                $adminGrossAmount = $itemTotal - $organizerAmount;
 
                 $orderItemsData[] = [
                     'event_id' => $ticketType->event_id,
                     'ticket_type_id' => $ticketType->id,
                     'quantity' => $item['quantity'],
-                    'unit_price' => $ticketType->price,
+                    'unit_price' => $effectiveUnitPrice,
                     'total_price' => $itemTotal,
-                    'admin_share_percent' => $revenueSplit['admin_share_percent'],
-                    'admin_amount' => $revenueSplit['admin_amount'],
-                    'organizer_amount' => $revenueSplit['organizer_amount'],
-                    'payment_fee' => $revenueSplit['payment_fee'],
+                    'admin_share_percent' => $adminSharePercent,
+                    'admin_amount' => $adminGrossAmount, // Gross for now, fee subtracted later
+                    'organizer_amount' => $organizerAmount,
+                    'payment_fee' => 0, // Will calculate on the whole order
                 ];
             }
 
-            // Calculate fees (1.5% Paystack fee)
-            $fees = round($totalAmount * 0.015, 2);
-            $grandTotal = $totalAmount + $fees;
+            // Calculate final fees (1.5% Paystack fee)
+            // The dynamic markup is already IN the totalAmount (subtotal)
+            $paystackFee = round($totalAmount * 0.015, 2);
+            $grandTotal = $totalAmount + $paystackFee;
+
+            // Subtract Paystack fee from AdminAmount for each item (pro-rata)
+            foreach ($orderItemsData as &$itemData) {
+                $itemProportion = $itemData['total_price'] / $totalAmount;
+                $itemFee = round($paystackFee * $itemProportion, 2);
+                $itemData['payment_fee'] = $itemFee;
+                $itemData['admin_amount'] = round($itemData['admin_amount'] - $itemFee, 2);
+            }
 
             // Create Order
             $orderData = [
                 'user_id' => $user->id,
                 'subtotal' => $totalAmount,
-                'fees' => $fees,
+                'fees' => $paystackFee,
                 'total_amount' => $grandTotal,
                 'status' => Order::STATUS_PENDING,
                 'customer_email' => $data['customer_email'] ?? $user->email,
@@ -149,7 +172,7 @@ class OrderController
                 'order_id' => $order->id,
                 'reference' => $paystackReference,
                 'subtotal' => $totalAmount,
-                'fees' => $fees,
+                'fees' => $paystackFee,
                 'total_amount' => $grandTotal,
                 'status' => $order->status,
                 'is_pos' => $isPos,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 /**
  * TicketType Model
@@ -98,6 +99,50 @@ class TicketType extends Model
             && $this->remaining > 0
             && ($this->sale_start === null || $this->sale_start <= $now)
             && ($this->sale_end === null || $this->sale_end >= $now);
+    }
+
+    /**
+     * Check if sale is currently active
+     */
+    public function isSaleActive(): bool
+    {
+        if ($this->sale_price === null || $this->sale_price <= 0) {
+            return false;
+        }
+
+        $now = Carbon::now();
+        $isStarted = $this->sale_start === null || $this->sale_start <= $now;
+        $isNotEnded = $this->sale_end === null || $this->sale_end >= $now;
+
+        return $isStarted && $isNotEnded;
+    }
+
+    /**
+     * Get the current effective price (regular or sale)
+     */
+    public function getCurrentPrice(): float
+    {
+        return $this->isSaleActive() ? (float) $this->sale_price : (float) $this->price;
+    }
+
+    /**
+     * Get the current effective price (base price + percentage markup)
+     */
+    public function getEffectivePrice(): float
+    {
+        $base = $this->getCurrentPrice();
+        $markupPercent = (float)($this->dynamic_fee ?? 0);
+        return round($base + ($base * ($markupPercent / 100)), 2);
+    }
+
+    /**
+     * Get the dynamic fee amount per ticket
+     */
+    public function getDynamicFeeAmount(): float
+    {
+        $base = $this->getCurrentPrice();
+        $markupPercent = (float)($this->dynamic_fee ?? 0);
+        return round($base * ($markupPercent / 100), 2);
     }
 
     /**

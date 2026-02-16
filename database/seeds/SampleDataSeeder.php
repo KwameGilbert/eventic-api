@@ -165,6 +165,8 @@ class SampleDataSeeder extends AbstractSeed
         // Get organizer user IDs
         $organizer1 = $this->fetchRow("SELECT id FROM users WHERE email = 'organizer@eventic.com'");
         $organizer2 = $this->fetchRow("SELECT id FROM users WHERE email = 'gea@eventic.com'");
+        $organizer3 = $this->fetchRow("SELECT id FROM users WHERE email = 'apex@eventic.com'");
+        $organizer4 = $this->fetchRow("SELECT id FROM users WHERE email = 'silver@eventic.com'");
 
         if (!$organizer1 || !$organizer2) {
             echo "Organizer users not found. Skipping...\n";
@@ -196,35 +198,49 @@ class SampleDataSeeder extends AbstractSeed
             ],
         ];
 
+        if ($organizer3) {
+            $organizers[] = [
+                'user_id' => $organizer3['id'],
+                'organization_name' => 'Apex Productions',
+                'bio' => 'Innovative event production firm focusing on tech conferences and high-end workshops.',
+                'profile_image' => 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=400',
+                'social_facebook' => 'https://facebook.com/apexprodgh',
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        if ($organizer4) {
+            $organizers[] = [
+                'user_id' => $organizer4['id'],
+                'organization_name' => 'Silver Screen Events',
+                'bio' => 'Dedicated to promoting the film and television industry in West Africa.',
+                'profile_image' => 'https://images.unsplash.com/photo-1485038101968-07c845395971?w=400',
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
         $this->table('organizers')->insert($organizers)->save();
         
         // Create organizer balances
-        $org1 = $this->fetchRow("SELECT id FROM organizers WHERE organization_name = 'Event Masters Ghana'");
-        $org2 = $this->fetchRow("SELECT id FROM organizers WHERE organization_name = 'Ghana Entertainment Awards'");
+        $allOrganizers = $this->fetchAll("SELECT id FROM organizers");
         
-        $balances = [
-            [
-                'organizer_id' => $org1['id'],
+        $balances = [];
+        foreach ($allOrganizers as $org) {
+            $balances[] = [
+                'organizer_id' => $org['id'],
                 'available_balance' => 0.00,
                 'pending_balance' => 0.00,
                 'total_earned' => 0.00,
                 'total_withdrawn' => 0.00,
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
-            ],
-            [
-                'organizer_id' => $org2['id'],
-                'available_balance' => 0.00,
-                'pending_balance' => 0.00,
-                'total_earned' => 0.00,
-                'total_withdrawn' => 0.00,
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ],
-        ];
+            ];
+        }
         
         $this->table('organizer_balances')->insert($balances)->save();
-        echo "✅ Organizers seeded\n";
+        echo "✅ Organizers and balances seeded\n";
     }
 
     private function seedAwards(): void
@@ -265,7 +281,7 @@ class SampleDataSeeder extends AbstractSeed
                 'phone' => '+233302123456',
                 'website' => 'https://ghanamusicawards.com',
                 'facebook' => 'https://facebook.com/ghanamusicawards',
-                'twitter' => 'https://twitter.com/gikiganamusicawards',
+                'twitter' => 'https://twitter.com/ghanamusicawards',
                 'instagram' => 'https://instagram.com/ghanamusicawards',
                 'video_url' => 'https://youtube.com/watch?v=example',
                 'views' => 15420,
@@ -298,7 +314,55 @@ class SampleDataSeeder extends AbstractSeed
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
             ],
+            [
+                'organizer_id' => $organizer['id'],
+                'title' => 'Ghana DJ Awards 2026',
+                'slug' => 'ghana-dj-awards-2026',
+                'description' => 'Honoring the disk jockeys who keep the nation dancing. Celebrating the art of DJing in Ghana.',
+                'banner_image' => 'https://images.unsplash.com/photo-1571266028243-3716f02d2d2e?w=1200',
+                'venue_name' => 'Silver Star Tower',
+                'address' => 'Airport City, Accra',
+                'ceremony_date' => '2026-04-10 20:00:00',
+                'voting_start' => '2026-01-10 09:00:00',
+                'voting_end' => '2026-04-05 23:59:59',
+                'status' => 'published',
+                'award_code' => 'GDJ',
+                'show_results' => 1,
+                'admin_share_percent' => 10.00,
+                'country' => 'Ghana',
+                'region' => 'Greater Accra',
+                'city' => 'Accra',
+                'views' => 5200,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ],
         ];
+
+        $apexOrg = $this->fetchRow("SELECT id FROM organizers WHERE organization_name = 'Apex Productions'");
+        if ($apexOrg) {
+            $awards[] = [
+                'organizer_id' => $apexOrg['id'],
+                'title' => 'Ghana Tech Awards 2026',
+                'slug' => 'ghana-tech-awards-2026',
+                'description' => 'Recognizing innovation and excellence in the Ghanaian technology ecosystem.',
+                'banner_image' => 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200',
+                'venue_name' => 'Kempinski Hotel Gold Coast City',
+                'address' => 'Gamel Abdul Nasser Avenue, Accra',
+                'ceremony_date' => '2026-11-15 18:30:00',
+                'voting_start' => '2026-08-15 00:00:00',
+                'voting_end' => '2026-11-01 23:59:59',
+                'status' => 'published',
+                'award_code' => 'GTA',
+                'show_results' => 1,
+                'admin_share_percent' => 12.50,
+                'country' => 'Ghana',
+                'region' => 'Greater Accra',
+                'city' => 'Accra',
+                'views' => 3100,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+        }
 
         $this->table('awards')->insert($awards)->save();
         echo "✅ Awards seeded\n";
@@ -599,6 +663,57 @@ class SampleDataSeeder extends AbstractSeed
             ],
         ];
 
+        $apexOrg = $this->fetchRow("SELECT id FROM organizers WHERE organization_name = 'Apex Productions'");
+        $confType = $this->fetchRow("SELECT id FROM event_types WHERE slug = 'conference'");
+        if ($apexOrg) {
+            $events[] = [
+                'organizer_id' => $apexOrg['id'],
+                'title' => 'Ghana Tech Summit 2026',
+                'slug' => 'ghana-tech-summit-2026',
+                'description' => 'Connecting global entrepreneurs with regional experts to discuss the future of technology in Africa.',
+                'event_type_id' => $confType ? $confType['id'] : null,
+                'venue_name' => 'Movenpick Ambassador Hotel',
+                'address' => 'Independence Avenue, Accra',
+                'banner_image' => 'https://images.unsplash.com/photo-1540575861501-7ad060e1c27b?w=1200',
+                'start_time' => '2026-06-10 09:00:00',
+                'end_time' => '2026-06-11 17:00:00',
+                'status' => 'published',
+                'is_featured' => 1,
+                'admin_share_percent' => 10.00,
+                'country' => 'Ghana',
+                'region' => 'Greater Accra',
+                'city' => 'Accra',
+                'views' => 12400,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        $silverOrg = $this->fetchRow("SELECT id FROM organizers WHERE organization_name = 'Silver Screen Events'");
+        if ($silverOrg) {
+            $events[] = [
+                'organizer_id' => $silverOrg['id'],
+                'title' => 'West Africa Film Festival',
+                'slug' => 'west-africa-film-festival',
+                'description' => 'Showcasing the best cinematic works from across West Africa.',
+                'event_type_id' => $festivalType ? $festivalType['id'] : null,
+                'venue_name' => 'Silverbird Cinemas',
+                'address' => 'Accra Mall, Tetteh Quarshie, Accra',
+                'banner_image' => 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1200',
+                'start_time' => '2026-09-05 10:00:00',
+                'end_time' => '2026-09-12 22:00:00',
+                'status' => 'published',
+                'is_featured' => 0,
+                'admin_share_percent' => 10.00,
+                'country' => 'Ghana',
+                'region' => 'Greater Accra',
+                'city' => 'Accra',
+                'views' => 7800,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+        }
+
         $this->table('events')->insert($events)->save();
         echo "✅ Events seeded\n";
     }
@@ -737,12 +852,12 @@ class SampleDataSeeder extends AbstractSeed
         $phones = ['+233541111111', '+233542222222', '+233543333333', '+233544444444', '+233545555555'];
 
         foreach ($nominees as $index => $nominee) {
-            // Create 2-5 votes per nominee
-            $voteCount = random_int(2, 5);
+            // Create 5-15 votes per nominee
+            $voteCount = random_int(5, 15);
             
             for ($i = 0; $i < $voteCount; $i++) {
-                $numVotes = random_int(1, 20);
-                $costPerVote = 0.50; // Default
+                $numVotes = random_int(1, 100);
+                $costPerVote = 0.50; 
                 $grossAmount = $numVotes * $costPerVote;
                 $adminPercent = 15.00;
                 $adminAmount = $grossAmount * ($adminPercent / 100);
@@ -759,11 +874,11 @@ class SampleDataSeeder extends AbstractSeed
                     'admin_share_percent' => $adminPercent,
                     'admin_amount' => $adminAmount,
                     'organizer_amount' => $organizerAmount,
-                    'payment_fee' => $grossAmount * 0.0195, // ~2% Paystack fee
+                    'payment_fee' => $grossAmount * 0.0195, 
                     'status' => 'paid',
-                    'reference' => 'SEED_' . uniqid() . '_' . $index . '_' . $i,
+                    'reference' => 'SEED_' . strtoupper(uniqid()) . '_' . $index . '_' . $i,
                     'voter_phone' => $phones[array_rand($phones)],
-                    'created_at' => date('Y-m-d H:i:s', strtotime("-" . random_int(1, 30) . " days")),
+                    'created_at' => date('Y-m-d H:i:s', strtotime("-" . random_int(1, 60) . " days")),
                     'updated_at' => date('Y-m-d H:i:s'),
                 ];
             }
