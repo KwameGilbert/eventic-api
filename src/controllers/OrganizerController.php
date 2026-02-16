@@ -1432,59 +1432,20 @@ class OrganizerController
             }
 
             // === GET BASE AWARD DETAILS FROM MODEL ===
+            // This already includes categories, nominees, and standardized 'stats' object
             $awardData = $award->getFullDetails('organizer', $jwtUser->id);
 
-            // === ADD ORGANIZER-SPECIFIC STATS ===
-            $totalCategories = $award->categories->count();
-            $totalNominees = $award->nominees()->count();
-            $totalVotes = $award->getTotalVotes();
-            $revenue = $award->getTotalRevenue();
-
-            // Count unique voters (by email since award_votes doesn't have user_id)
-            $uniqueVoters = AwardVote::where('award_id', $awardId)
-                ->where('status', 'paid')
-                ->whereNotNull('voter_email')
-                ->distinct()
-                ->count('voter_email');
-
-            $stats = [
-                'total_categories' => $totalCategories,
-                'total_nominees' => $totalNominees,
-                'total_votes' => $totalVotes,
-                'revenue' => $revenue,
-                'unique_voters' => $uniqueVoters,
+            // Access stats from the model response
+            $stats = $awardData['stats'] ?? [
+                'total_categories' => $award->categories->count(),
+                'total_nominees' => $award->nominees()->count(),
+                'total_votes' => $awardData['total_votes'] ?? $award->getTotalVotes(),
+                'revenue' => $awardData['total_revenue'] ?? $award->getTotalRevenue(),
+                'unique_voters' => 0
             ];
 
-            // === GET CATEGORIES WITH STATS ===
-            $categories = $award->categories->map(function ($category) {
-                return [
-                    'id' => $category->id,
-                    'name' => $category->name,
-                    'description' => $category->description,
-                    'image' => $category->image,
-                    'cost_per_vote' => (float) $category->cost_per_vote,
-                    'nominees_count' => $category->nominees->count(),
-                    'total_votes' => $category->getTotalVotes(),
-                    'revenue' => $category->getTotalVotes() * $category->cost_per_vote,
-                    'voting_start' => $category->voting_start ? Carbon::parse($category->voting_start)->toIso8601String() : null,
-                    'voting_end' => $category->voting_end ? Carbon::parse($category->voting_end)->toIso8601String() : null,
-                    'is_voting_open' => $category->isVotingOpen(),
-                    // Include nominees array
-                    'nominees' => $category->nominees->map(function ($nominee) {
-                        return [
-                            'id' => $nominee->id,
-                            'nominee_code' => $nominee->nominee_code,
-                            'name' => $nominee->name,
-                            'description' => $nominee->description,
-                            'image' => $nominee->image,
-                            'total_votes' => $nominee->getTotalVotes(),
-                            'display_order' => $nominee->display_order,
-                        ];                    })->toArray(),
-                ];
-            })->toArray();
-
             // === GET RECENT VOTES ===
-            $recentVotes = \App\Models\AwardVote::where('award_id', $awardId)
+            $recentVotes = AwardVote::where('award_id', $awardId)
                 ->where('status', 'paid')
                 ->with(['nominee.category'])
                 ->orderBy('created_at', 'desc')
@@ -1508,7 +1469,7 @@ class OrganizerController
                 $date = Carbon::now()->subDays($i);
                 $dayName = $date->format('D');
 
-                $dayVotes = \App\Models\AwardVote::where('award_id', $awardId)
+                $dayVotes = AwardVote::where('award_id', $awardId)
                     ->where('status', 'paid')
                     ->whereDate('created_at', $date->toDateString())
                     ->sum('number_of_votes');
@@ -1521,7 +1482,6 @@ class OrganizerController
 
             // === ASSEMBLE COMPREHENSIVE DATA ===
             $awardData['stats'] = $stats;
-            $awardData['categories'] = $categories;
             $awardData['recent_votes'] = $recentVotes;
             $awardData['vote_analytics'] = $voteAnalytics;
 

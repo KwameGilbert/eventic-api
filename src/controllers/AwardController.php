@@ -686,7 +686,7 @@ class AwardController
 
             return ResponseHelper::success($response, 'Results visibility updated successfully', [
                 'show_results' => $newValue,
-                'message' => $newValue ? 'Voting results are now visible to the public' : 'Voting results are now hidden from the public'
+                'message' => $newValue ? 'Award Voting results are now visible to the public' : 'Award Voting results are now hidden from the public'
             ]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to toggle results visibility', 500, $e->getMessage());
@@ -741,11 +741,12 @@ class AwardController
             return ResponseHelper::success($response, 'Voting status updated successfully', [
                 'id' => $award->id,
                 'voting_status' => $award->voting_status,
-                'is_voting_open' => $award->isVotingOpen(),
-                'message' => $status === 'open' ? 'Voting is now OPEN for this award' : 'Voting is now CLOSED for this award'
+                'message' => $status === 'open' ? 'Award Voting is now OPEN' : 'Award Voting is now CLOSED (all category voting is also suspended)',
+                'award' => $award->getFullDetails($user->role, $user->id)
             ]);
 
         } catch (Exception $e) {
+            
             return ResponseHelper::error($response, 'Failed to update voting status', 500, $e->getMessage());
         }
     }

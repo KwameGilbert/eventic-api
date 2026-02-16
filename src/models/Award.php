@@ -22,9 +22,9 @@ use Illuminate\Support\Carbon;
  * @property string|null $venue_name
  * @property string|null $address
  * @property string|null $map_url
- * @property \Illuminate\Support\Carbon $ceremony_date
- * @property \Illuminate\Support\Carbon $voting_start
- * @property \Illuminate\Support\Carbon $voting_end
+ * @property Carbon $ceremony_date
+ * @property Carbon $voting_start
+ * @property Carbon $voting_end
  * @property string $status
  * @property bool $is_featured
  * @property float $admin_share_percent
@@ -38,8 +38,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $instagram
  * @property string|null $video_url
  * @property string|null $award_code
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Award extends Model
 {
@@ -283,7 +283,7 @@ class Award extends Model
      */
     public function scopeUpcoming($query)
     {
-        return $query->where('ceremony_date', '>', \Illuminate\Support\Carbon::now());
+        return $query->where('ceremony_date', '>', Carbon::now());
     }
 
     /**
@@ -291,7 +291,7 @@ class Award extends Model
      */
     public function scopeVotingOpen($query)
     {
-        $now = \Illuminate\Support\Carbon::now();
+        $now = Carbon::now();
         return $query->where('voting_start', '<=', $now)
                      ->where('voting_end', '>=', $now)
                      ->where('status', self::STATUS_PUBLISHED)
@@ -316,7 +316,7 @@ class Award extends Model
      */
     public function isVotingOpen(): bool
     {
-        $now = \Illuminate\Support\Carbon::now();
+        $now = Carbon::now();
         return $this->voting_start <= $now && 
                $this->voting_end >= $now &&
                $this->status === self::STATUS_PUBLISHED &&
@@ -328,7 +328,15 @@ class Award extends Model
      */
     public function isVotingClosed(): bool
     {
-        return \Illuminate\Support\Carbon::now() > $this->voting_end;
+        return Carbon::now() > $this->voting_end;
+    }
+
+    /**
+     * Get the effective voting status as a string ('open' or 'closed').
+     */
+    public function getEffectiveVotingStatus(): string
+    {
+        return $this->isVotingOpen() ? 'open' : 'closed';
     }
 
     /**
@@ -336,7 +344,7 @@ class Award extends Model
      */
     public function isCeremonyComplete(): bool
     {
-        return \Illuminate\Support\Carbon::now() > $this->ceremony_date;
+        return Carbon::now() > $this->ceremony_date;
     }
 
     /**
@@ -367,6 +375,18 @@ class Award extends Model
     }
 
     /**
+     * Get unique voters count.
+     */
+    public function getUniqueVotersCount(): int
+    {
+        return (int) $this->votes()
+                        ->where('status', 'paid')
+                        ->whereNotNull('voter_email')
+                        ->distinct()
+                        ->count('voter_email');
+    }
+
+    /**
      * Toggle show_results flag.
      */
     public function toggleShowResults(): bool
@@ -387,7 +407,7 @@ class Award extends Model
         $this->load(['organizer.user', 'categories.nominees', 'images']);
         
         // Check if user is organizer or admin
-        $isOrganizerOrAdmin = in_array($userRole, ['organizer', 'admin']);
+        $isOrganizerOrAdmin = in_array($userRole, ['organizer', 'admin', 'super_admin']);
         
         // If organizer, verify ownership
         if ($userRole === 'organizer' && $userId) {
@@ -409,8 +429,6 @@ class Award extends Model
             'ceremony_time' => $this->ceremony_date ? $this->ceremony_date->format('g:i A') : null,
             'voting_start' => $this->voting_start ? $this->voting_start->toIso8601String() : null,
             'voting_end' => $this->voting_end ? $this->voting_end->toIso8601String() : null,
-            'is_voting_open' => $this->isVotingOpen(),
-            'is_voting_closed' => $this->isVotingClosed(),
             'image' => $this->banner_image ?? '',
             'mapUrl' => $this->map_url,
             'status' => $this->status,
@@ -418,37 +436,46 @@ class Award extends Model
             'show_results' => $this->show_results,
             'award_code' => $this->award_code,
             'views' => $this->views,
+            'voting_status' => $this->voting_status,
 
-            'categories' => $this->categories->map(function ($category) {
+            'categories' => $this->categories->map(function ($category) use ($isOrganizerOrAdmin) {
                 $categoryData = [
                     'id' => $category->id,
                     'name' => $category->name,
                     'description' => $category->description,
                     'image' => $category->image,
                     'cost_per_vote' => (float) $category->cost_per_vote,
+                    'nominees_count' => $category->nominees->count(),
                     'voting_start' => $category->voting_start,
                     'voting_end' => $category->voting_end,
                     'status' => $category->status,
+                    'voting_status' => $category->getEffectiveVotingStatus(),
                     'display_order' => $category->display_order,
-                    'is_voting_open' => $category->isVotingOpen(),
-                    'nominees' => $category->nominees->map(function ($nominee) {
-                        $nomineeData = [
-                            'id' => $nominee->id,
-                            'nominee_code' => $nominee->nominee_code,
-                            'name' => $nominee->name,
-                            'description' => $nominee->description,
-                            'image' => $nominee->image,
-                            'display_order' => $nominee->display_order,
-                        ];
-                        
-                        // Include vote count for everyone if show_results is true
-                        if ($this->show_results) {
-                            $nomineeData['total_votes'] = $nominee->getTotalVotes();
-                        }
-                        
-                        return $nomineeData;
-                    })->toArray(),
                 ];
+
+                if ($isOrganizerOrAdmin) {
+                    $categoryData['total_votes'] = $category->getTotalVotes();
+                    $categoryData['revenue'] = $category->getTotalVotes() * $category->cost_per_vote;
+                    $categoryData['internal_voting_status'] = $category->voting_status;
+                }
+
+                $categoryData['nominees'] = $category->nominees->map(function ($nominee) use ($isOrganizerOrAdmin) {
+                    $nomineeData = [
+                        'id' => $nominee->id,
+                        'nominee_code' => $nominee->nominee_code,
+                        'name' => $nominee->name,
+                        'description' => $nominee->description,
+                        'image' => $nominee->image,
+                        'display_order' => $nominee->display_order,
+                    ];
+                    
+                    // Include vote count for everyone if show_results is true OR if is organizer/admin
+                    if ($this->show_results || $isOrganizerOrAdmin) {
+                        $nomineeData['total_votes'] = $nominee->getTotalVotes();
+                    }
+                    
+                    return $nomineeData;
+                })->toArray();
                 
                 return $categoryData;
             })->toArray(),
@@ -486,6 +513,15 @@ class Award extends Model
             // Organizers and admins always see stats
             $details['total_votes'] = $this->getTotalVotes();
             $details['total_revenue'] = $this->getTotalRevenue();
+
+            // Construction of stats object for AwardStats component
+            $details['stats'] = [
+                'total_categories' => $this->categories->count(),
+                'total_nominees' => $this->nominees()->count(),
+                'total_votes' => $details['total_votes'],
+                'revenue' => $details['total_revenue'],
+                'unique_voters' => $this->getUniqueVotersCount(),
+            ];
         }
 
         return $details;
@@ -522,7 +558,7 @@ class Award extends Model
      */
     public static function autoUpdateCompletedStatuses(?int $organizerId = null): int
     {
-        $now = \Illuminate\Support\Carbon::now();
+        $now = Carbon::now();
         
         // Build query for published awards with past ceremony dates
         $query = self::where('status', self::STATUS_PUBLISHED)

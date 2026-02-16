@@ -107,19 +107,27 @@ class AwardCategory extends Model
 
     /**
      * Check if voting is currently active for this category.
+     * Considers both manual toggles (award and category levels) and time periods.
      */
     public function isVotingActive(): bool
     {
+        // 1. Check if category is deactivated
         if ($this->status !== 'active') {
             return false;
         }
 
-        $now = \Illuminate\Support\Carbon::now();
-
-        // If no voting period is set, it's always active
-        if (!$this->voting_start && !$this->voting_end) {
-            return true;
+        // 2. Check if the parent award has overall voting closed
+        if ($this->award && $this->award->voting_status !== 'open') {
+            return false;
         }
+
+        // 3. Check if this specific category has voting manually closed
+        if ($this->voting_status === 'closed') {
+            return false;
+        }
+
+        // 4. Time-based check (if period is defined)
+        $now = Carbon::now();
 
         // Check if within voting period
         $afterStart = !$this->voting_start || $now->greaterThanOrEqualTo($this->voting_start);
@@ -134,6 +142,19 @@ class AwardCategory extends Model
     public function isVotingOpen(): bool
     {
         return $this->isVotingActive();
+    }
+
+    /**
+     * Get the effective voting status as a string ('open' or 'closed').
+     * If the parent award voting is closed, all categories are closed.
+     * Otherwise, returns the category's own voting_status.
+     */
+    public function getEffectiveVotingStatus(): string
+    {
+        if ($this->award && $this->award->voting_status !== 'open') {
+            return 'closed';
+        }
+        return $this->voting_status;
     }
 
     /**
@@ -162,8 +183,8 @@ class AwardCategory extends Model
             'voting_start' => $this->voting_start?->format('Y-m-d H:m:s'),
             'voting_end' => $this->voting_end?->format('Y-m-d H:m:s'),
             'status' => $this->status,
+            'voting_status' => $this->getEffectiveVotingStatus(),
             'display_order' => $this->display_order,
-            'is_voting_active' => $this->isVotingActive(),
             'total_votes' => $this->getTotalVotes(),
             'total_revenue' => $this->getTotalRevenue(),
             'nominees' => $nominees,

@@ -60,8 +60,8 @@ class AwardCategoryController
                         'voting_start' => $category->voting_start?->toIso8601String(),
                         'voting_end' => $category->voting_end?->toIso8601String(),
                         'status' => $category->status,
+                        'voting_status' => $category->getEffectiveVotingStatus(),
                         'display_order' => $category->display_order,
-                        'is_voting_active' => $category->isVotingActive(),
                     ];
                 });
             }
@@ -101,8 +101,8 @@ class AwardCategoryController
                     'voting_start' => $category->voting_start?->toIso8601String(),
                     'voting_end' => $category->voting_end?->toIso8601String(),
                     'status' => $category->status,
+                    'voting_status' => $category->getEffectiveVotingStatus(),
                     'display_order' => $category->display_order,
-                    'is_voting_active' => $category->isVotingActive(),
                     'created_at' => $category->created_at?->toIso8601String(),
                     'updated_at' => $category->updated_at?->toIso8601String(),
                 ];
@@ -242,7 +242,10 @@ public function create(Request $request, Response $response, array $args): Respo
 
             $category->update($data);
 
-            return ResponseHelper::success($response, 'Award category updated successfully', $category->fresh()->toArray());
+            $responseData = $category->toArray();
+            $responseData['voting_status'] = $category->getEffectiveVotingStatus();
+
+            return ResponseHelper::success($response, 'Award category updated successfully', $responseData);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to update award category', 500, $e->getMessage());
         }
@@ -407,10 +410,9 @@ public function create(Request $request, Response $response, array $args): Respo
 
             return ResponseHelper::success($response, 'Category voting status updated successfully', [
                 'id' => $category->id,
-                'voting_status' => $category->voting_status,
-                'is_voting_active' => $category->isVotingActive(), // This reflects combined state
-                'is_award_voting_open' => $award ? $award->isVotingOpen() : false, 
-                'message' => $status === 'open' ? 'Voting is now ENABLED for this category' : 'Voting is now DISABLED for this category'
+                'voting_status' => $category->getEffectiveVotingStatus(),
+                'internal_voting_status' => $category->voting_status,
+                'message' => $status === 'open' ? 'Category Voting is now OPEN' : 'Category Voting is now CLOSED'
             ]);
 
         } catch (Exception $e) {
