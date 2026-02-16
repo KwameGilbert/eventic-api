@@ -13,17 +13,18 @@ use App\Models\Event;
 use App\Models\Organizer;
 use App\Models\Transaction;
 use App\Models\OrganizerBalance;
+use App\Services\ExpressPayService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Exception;
 
 class AwardVoteController
 {
-    private string $paystackSecretKey;
+    private ExpressPayService $expressPayService;
 
     public function __construct()
     {
-        $this->paystackSecretKey = $_ENV['PAYSTACK_SECRET_KEY'] ?? '';
+        $this->expressPayService = new ExpressPayService();
     }
     /**
      * Initiate a vote (create pending vote and return payment details)
@@ -97,10 +98,36 @@ class AwardVoteController
                 'nominee_code' => $nominee->nominee_code,
             ]);
 
+            // Initiate payment with ExpressPay
+            // We need a redirect URL for ExpressPay to send the user back to
+            // This should be your frontend URL handling the payment confirmation
+            // e.g. https://your-frontend.com/payment/callback
+            // For now, we'll assume the frontend handles the redirect/token directly or we pass a placeholder
+            // that the frontend will intercept (if embedded) or a real URL.
+            // Let's use a generic formatting for now.
+            
+            $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
+            $redirectUrl = $frontendUrl . '/payment/callback'; // Adjust route as needed
+
+            $paymentData = [
+                'firstname' => $data['voter_name'] ? explode(' ', $data['voter_name'])[0] : 'Guest',
+                'lastname' => $data['voter_name'] && count(explode(' ', $data['voter_name'])) > 1 ? explode(' ', $data['voter_name'])[1] : 'Voter',
+                'email' => $data['voter_email'],
+                'phonenumber' => $data['voter_phone'] ?? '0000000000',
+                'amount' => $totalAmount,
+                'order_id' => $reference,
+                'redirect_url' => $redirectUrl,
+                'description' => "Vote for {$nominee->name} ({$numberOfVotes} votes)",
+            ];
+
+            $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
+
             // Return payment information
             $voteDetails = [
                 'vote_id' => $vote->id,
                 'reference' => $reference,
+                'payment_token' => $expressPayResponse['token'],
+                'checkout_url' => $expressPayResponse['redirect_url'],
                 'nominee' => [
                     'id' => $nominee->id,
                     'nominee_code' => $nominee->nominee_code,
@@ -138,14 +165,43 @@ class AwardVoteController
         try {
             $data = $request->getParsedBody();
 
-            // Validate required fields
-            if (empty($data['reference'])) {
-                return ResponseHelper::error($response, 'Payment reference is required', 400);
+            // We expect a token from ExpressPay redirect (or passed by frontend)
+            // Or a reference if we are looking up by our own ID (but ExpressPay query uses token)
+            
+            if (empty($data['token']) && empty($data['reference'])) {
+                return ResponseHelper::error($response, 'Payment token or reference is required', 400);
             }
 
-            $reference = $data['reference'];
+            // If we have a token, we query ExpressPay
+            if (!empty($data['token'])) {
+                $token = $data['token'];
+                $paymentStatus = $this->expressPayService->queryTransaction($token);
+                
+                if ($paymentStatus['status'] !== 'success') {
+                    // Try to find the vote to return details for redirect
+                    $reference = $paymentStatus['order_id'] ?? null;
+                    if ($reference) {
+                        $vote = AwardVote::where('reference', $reference)
+                            ->with(['nominee', 'category', 'award'])
+                            ->first();
+                            
+                        if ($vote) {
+                            $voteDetails = $vote->toArray();
+                            $voteDetails['nominee'] = $vote->nominee;
+                            $voteDetails['category'] = $vote->category;
+                            $voteDetails['award'] = $vote->award;
+                            $paymentStatus['vote_details'] = $voteDetails;
+                        }
+                    }
+                     return ResponseHelper::error($response, 'Payment verification failed', 400, $paymentStatus);
+                }
 
-            // Find vote by reference with award relationship
+                $reference = $paymentStatus['order_id']; // This should match our reference
+            } else {
+                 return ResponseHelper::error($response, 'Payment token is required for verification', 400);
+            }
+
+            // Find vote by reference
             $vote = AwardVote::with(['category', 'award.organizer'])->where('reference', $reference)->first();
 
             if (!$vote) {
@@ -158,37 +214,7 @@ class AwardVoteController
                 return ResponseHelper::success($response, 'Vote already confirmed', $vote->getDetails());
             }
 
-            // Verify payment with Paystack
-            $paymentData = $this->verifyPaystackPayment($reference);
-
-            if (!$paymentData) {
-                error_log("Vote confirmation failed: Paystack verification failed for reference: {$reference}");
-                return ResponseHelper::error($response, 'Payment verification failed: ', 400);
-            }
-
-            // Check if payment was successful
-            if ($paymentData['status'] !== 'success') {
-                error_log("Vote confirmation failed: Payment status not success. Status: {$paymentData['status']}");
-                return ResponseHelper::error($response, 'Payment was not successful', 400, [
-                    'payment_status' => $paymentData['status'],
-                    'gateway_response' => $paymentData['gateway_response'] ?? null,
-                ]);
-            }
-
-            // Verify amount matches (convert from kobo/pesewas to main currency)
-            $expectedAmount = $vote->getTotalAmount();
-            $paidAmount = $paymentData['amount'] / 100;
-
-            // Allow for small floating point differences (1 pesewa tolerance)
-            if (abs($paidAmount - $expectedAmount) > 0.02) {
-                error_log("Vote confirmation failed: Amount mismatch. Expected: {$expectedAmount}, Paid: {$paidAmount}");
-                return ResponseHelper::error($response, 'Payment amount mismatch', 400, [
-                    'expected' => $expectedAmount,
-                    'paid' => $paidAmount,
-                ]);
-            }
-
-            // Mark vote as paid - use direct update for reliability
+            // Mark vote as paid
             $vote->status = 'paid';
             $vote->save();
             
@@ -538,77 +564,6 @@ class AwardVoteController
             return ResponseHelper::success($response, 'Award vote statistics fetched successfully', $stats);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch award statistics', 500, $e->getMessage());
-        }
-    }
-
-    /**
-     * Verify payment with Paystack API
-     * 
-     * @param string $reference Payment reference
-     * @return array|null Payment data if successful, null if failed
-     */
-    private function verifyPaystackPayment(string $reference): ?array
-    {
-        try {
-            $url = "https://api.paystack.co/transaction/verify/" . rawurlencode($reference);
-            
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                "Authorization: Bearer " . $this->paystackSecretKey,
-                "Content-Type: application/json",
-            ]);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            
-            // SSL Configuration
-            // For production, download cacert.pem from https://curl.se/ca/cacert.pem
-            // and set: curl_setopt($ch, CURLOPT_CAINFO, '/path/to/cacert.pem');
-            $isProduction = ($_ENV['APP_ENV'] ?? 'development') === 'production';
-            
-            if (!$isProduction) {
-                // Development: Disable SSL verification (NOT for production!)
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            } else {
-                // Production: Verify SSL properly
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-                
-                // If you have a CA bundle file, uncomment and set path:
-                // $caPath = $_ENV['CURL_CA_BUNDLE'] ?? null;
-                // if ($caPath && file_exists($caPath)) {
-                //     curl_setopt($ch, CURLOPT_CAINFO, $caPath);
-                // }
-            }
-            
-            $result = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $err = curl_error($ch);
-            curl_close($ch);
-
-            if ($err) {
-                error_log("Paystack verification cURL error: " . $err);
-                return null;
-            }
-
-            if ($httpCode !== 200) {
-                error_log("Paystack verification HTTP error: {$httpCode}, Response: {$result}");
-                return null;
-            }
-
-            $paystackResponse = json_decode($result, true);
-
-            if (!$paystackResponse || !isset($paystackResponse['status']) || !$paystackResponse['status']) {
-                error_log("Paystack verification failed: Invalid response - " . ($result ?? 'empty'));
-                return null;
-            }
-
-            error_log("Paystack verification successful for reference: {$reference}");
-            return $paystackResponse['data'] ?? null;
-        } catch (Exception $e) {
-            error_log("Paystack verification exception: " . $e->getMessage());
-            return null;
         }
     }
 }

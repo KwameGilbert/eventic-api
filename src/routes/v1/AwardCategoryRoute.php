@@ -34,6 +34,9 @@ return function (App $app): void {
         // Update category
         $group->put('/award-categories/{id}', [$categoryController, 'update']);
 
+        // Toggle category voting
+        $group->put('/award-categories/{id}/toggle-voting', [$categoryController, 'toggleVoting']);
+
         // Delete category
         $group->delete('/award-categories/{id}', [$categoryController, 'delete']);
 

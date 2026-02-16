@@ -364,4 +364,57 @@ public function create(Request $request, Response $response, array $args): Respo
             return ResponseHelper::error($response, 'Failed to reorder categories', 500, $e->getMessage());
         }
     }
+
+    /**
+     * Toggle voting status (open/closed) for a category
+     * PUT /v1/award-categories/{id}/toggle-voting
+     */
+    public function toggleVoting(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $id = $args['id'];
+            $data = $request->getParsedBody();
+            $user = $request->getAttribute('user');
+
+            $category = AwardCategory::with('award')->find($id);
+            if (!$category) {
+                return ResponseHelper::error($response, 'Award category not found', 404);
+            }
+
+            // Authorization
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                $award = $category->award;
+                if (!$organizer || !$award || $organizer->id !== $award->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not own this category', 403);
+                }
+            }
+
+            if (!isset($data['voting_status']) || !in_array($data['voting_status'], ['open', 'closed'])) {
+                return ResponseHelper::error($response, 'Invalid voting status. Must be open or closed', 400);
+            }
+
+            $status = $data['voting_status'];
+            $award = $category->award;
+
+            // Validation logic for Opening voting
+            if ($status === 'open' && $award && $award->status === Award::STATUS_COMPLETED) {
+                return ResponseHelper::error($response, 'Cannot open voting: Award event is completed', 400);
+            }
+
+            $category->voting_status = $status;
+            $category->save();
+
+            return ResponseHelper::success($response, 'Category voting status updated successfully', [
+                'id' => $category->id,
+                'voting_status' => $category->voting_status,
+                'is_voting_active' => $category->isVotingActive(), // This reflects combined state
+                'is_award_voting_open' => $award ? $award->isVotingOpen() : false, 
+                'message' => $status === 'open' ? 'Voting is now ENABLED for this category' : 'Voting is now DISABLED for this category'
+            ]);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update category voting status', 500, $e->getMessage());
+        }
+    }
 }

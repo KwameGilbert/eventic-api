@@ -108,6 +108,7 @@ class Award extends Model
         'instagram',
         'video_url',
         'views',
+        'voting_status',
     ];
 
     /**
@@ -135,6 +136,10 @@ class Award extends Model
         static::creating(function ($award) {
             if (empty($award->award_code)) {
                 $award->award_code = self::generateUniqueAwardCode($award->title);
+            }
+            // Set default voting status if not set
+            if (empty($award->voting_status)) {
+                $award->voting_status = 'open';
             }
         });
     }
@@ -289,7 +294,8 @@ class Award extends Model
         $now = \Illuminate\Support\Carbon::now();
         return $query->where('voting_start', '<=', $now)
                      ->where('voting_end', '>=', $now)
-                     ->where('status', self::STATUS_PUBLISHED);
+                     ->where('status', self::STATUS_PUBLISHED)
+                     ->where('voting_status', 'open');
     }
 
     /* -----------------------------------------------------------------
@@ -313,7 +319,8 @@ class Award extends Model
         $now = \Illuminate\Support\Carbon::now();
         return $this->voting_start <= $now && 
                $this->voting_end >= $now &&
-               $this->status === self::STATUS_PUBLISHED;
+               $this->status === self::STATUS_PUBLISHED &&
+               $this->voting_status === 'open';
     }
 
     /**

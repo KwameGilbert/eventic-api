@@ -41,6 +41,9 @@ return function (App $app): void {
         // Toggle show_results
         $group->put('/{id}/toggle-results', [$awardController, 'toggleShowResults']);
         
+        // Toggle voting status
+        $group->put('/{id}/toggle-voting', [$awardController, 'toggleVoting']);
+        
         // Submit award for approval (draft -> pending)
         $group->put('/{id}/submit-for-approval', [$awardController, 'submitForApproval']);
         

@@ -694,6 +694,63 @@ class AwardController
     }
 
     /**
+     * Toggle voting status (open/closed) for an award
+     * PUT /v1/awards/{id}/toggle-voting
+     */
+    public function toggleVoting(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $awardId = (int) $args['id'];
+            $data = $request->getParsedBody();
+            $user = $request->getAttribute('user');
+
+            // Find the award
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Authorization
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $award->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized', 403);
+                }
+            }
+
+            if (!isset($data['voting_status']) || !in_array($data['voting_status'], ['open', 'closed'])) {
+                return ResponseHelper::error($response, 'Invalid voting status. Must be open or closed', 400);
+            }
+
+            $status = $data['voting_status'];
+
+            // Validation logic for Opening voting
+            if ($status === 'open') {
+                if ($award->status === Award::STATUS_COMPLETED) {
+                    return ResponseHelper::error($response, 'Cannot open voting: Award event is completed', 400);
+                }
+                
+                if ($award->status !== Award::STATUS_PUBLISHED) {
+                    return ResponseHelper::error($response, 'Cannot open voting: Award must be published first', 400);
+                }
+            }
+
+            $award->voting_status = $status;
+            $award->save();
+
+            return ResponseHelper::success($response, 'Voting status updated successfully', [
+                'id' => $award->id,
+                'voting_status' => $award->voting_status,
+                'is_voting_open' => $award->isVotingOpen(),
+                'message' => $status === 'open' ? 'Voting is now OPEN for this award' : 'Voting is now CLOSED for this award'
+            ]);
+
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to update voting status', 500, $e->getMessage());
+        }
+    }
+
+    /**
      * Submit award for approval (draft -> pending)
      * PUT /v1/awards/{id}/submit-for-approval
      */
@@ -756,4 +813,5 @@ class AwardController
             return ResponseHelper::error($response, 'Failed to submit award for approval', 500, $e->getMessage());
         }
     }
+    
 }
