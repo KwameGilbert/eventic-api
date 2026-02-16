@@ -58,7 +58,10 @@ class AwardController
                 ->withCount('categories')
                 ->withSum(['votes as votes_sum_number_of_votes' => function($q) {
                     $q->where('status', 'paid');
-                }], 'number_of_votes');
+                }], 'number_of_votes')
+                ->withSum(['votes as votes_sum_gross_amount' => function($q) {
+                    $q->where('status', 'paid');
+                }], 'gross_amount');
 
             // Filter by status (default to published for public list)
             if (isset($queryParams['status'])) {
@@ -105,7 +108,7 @@ class AwardController
 
             // Format awards for frontend compatibility
             $formattedAwards = $awards->map(function ($award) {
-                return $award->getFullDetails();
+                return $award->getSummary();
             });
 
             return ResponseHelper::success($response, 'Awards fetched successfully', [
@@ -136,7 +139,14 @@ class AwardController
             $offset = ($page - 1) * $perPage;
 
             // Build query for featured awards
-            $query = Award::with(['categories.nominees', 'organizer.user', 'images'])
+            $query = Award::with(['organizer.user', 'images'])
+                ->withCount('categories')
+                ->withSum(['votes as votes_sum_number_of_votes' => function($q) {
+                    $q->where('status', 'paid');
+                }], 'number_of_votes')
+                ->withSum(['votes as votes_sum_gross_amount' => function($q) {
+                    $q->where('status', 'paid');
+                }], 'gross_amount')
                 ->whereIn('status', [Award::STATUS_PUBLISHED, Award::STATUS_COMPLETED])
                 ->where('is_featured', true);
 
@@ -161,7 +171,7 @@ class AwardController
 
             // Format awards for frontend compatibility (same as index)
             $formattedAwards = $awards->map(function ($award) {
-                return $award->getFullDetails();
+                return $award->getSummary();
             });
 
             return ResponseHelper::success($response, 'Featured awards fetched successfully', [
@@ -590,7 +600,14 @@ class AwardController
                 return ResponseHelper::error($response, 'Search query is required', 400);
             }
 
-            $awards = Award::with(['categories.nominees', 'organizer.user'])
+            $awards = Award::with(['organizer.user', 'images'])
+                ->withCount('categories')
+                ->withSum(['votes as votes_sum_number_of_votes' => function($q) {
+                    $q->where('status', 'paid');
+                }], 'number_of_votes')
+                ->withSum(['votes as votes_sum_gross_amount' => function($q) {
+                    $q->where('status', 'paid');
+                }], 'gross_amount')
                 ->whereIn('status', [Award::STATUS_PUBLISHED, Award::STATUS_COMPLETED])
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'LIKE', "%{$query}%")
@@ -599,7 +616,7 @@ class AwardController
                 ->get();
 
             $formattedAwards = $awards->map(function ($award) {
-                return $award->getFullDetails();
+                return $award->getSummary();
             });
 
             return ResponseHelper::success($response, 'Awards found', [

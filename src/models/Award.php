@@ -560,11 +560,13 @@ class Award extends Model
             'ceremony_date' => $this->ceremony_date ? $this->ceremony_date->format('Y-m-d') : null,
             'ceremony_time' => $this->ceremony_date ? $this->ceremony_date->format('g:i A') : null,
             'is_voting_open' => $this->isVotingOpen(),
+            'voting_status' => $this->voting_status,
             'image' => $this->banner_image ?? '',
             'status' => $this->status,
             'is_featured' => $this->is_featured,
             'categories_count' => $this->categories_count ?? $this->categories()->count(),
             'total_votes' => (int) ($this->votes_sum_number_of_votes ?? $this->getTotalVotes()),
+            'total_revenue' => (float) ($this->votes_sum_gross_amount ?? $this->getTotalRevenue()),
         ];
     }
 

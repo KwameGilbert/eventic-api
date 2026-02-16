@@ -81,14 +81,12 @@ class AdminController
             $totalTicketRevenue = (float) OrderItem::whereHas('order', function ($query) {
                 $query->where('status', 'paid');
             })->sum('total_price');
+            
             $totalVoteRevenue = (float) AwardVote::where('status', 'paid')
-                ->with('category')
-                ->get()
-                ->sum(function ($vote) {
-                    return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
-                });
+                ->sum('gross_amount');
+
             $totalRevenue = $totalTicketRevenue + $totalVoteRevenue;
-            $platformFees = ($totalTicketRevenue * 0.015) + ($totalVoteRevenue * 0.05);
+            $platformFees = ($totalTicketRevenue * 0.015) + ($totalVoteRevenue * 0.05); // Note: 0.05 is a placeholder/average, actual split is award-specific
 
             // Orders & Sales
             $totalOrders = Order::where('status', 'paid')->count();
@@ -207,20 +205,15 @@ class AdminController
                 ->limit(5)
                 ->get()
                 ->map(function ($award) {
-                    $votes = AwardVote::where('award_id', $award->id)
+                    $revenue = (float) AwardVote::where('award_id', $award->id)
                         ->where('status', 'paid')
-                        ->with('category')
-                        ->get();
-                    
-                    $revenue = (float) $votes->sum(function ($vote) {
-                        return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
-                    });
+                        ->sum('gross_amount');
                     
                     return [
                         'id' => $award->id,
                         'title' => $award->title,
                         'slug' => $award->slug,
-                        'votes' => $votes->sum('number_of_votes'),
+                        'votes' => (int) $award->total_votes,
                         'revenue' => round($revenue, 2),
                     ];
                 });
@@ -895,17 +888,9 @@ class AdminController
                     ->where('status', 'paid')
                     ->sum('number_of_votes');
 
-                    // Calculate total revenue for this award
-                    $votes = AwardVote::whereHas('category', function ($query) use ($award) {
-                        $query->where('award_id', $award->id);
-                    })
-                    ->where('status', 'paid')
-                    ->with('category')
-                    ->get();
-
-                    $totalRevenue = (float) $votes->sum(function ($vote) {
-                        return $vote->number_of_votes * ($vote->category->cost_per_vote);
-                    });
+                    $totalRevenue = (float) AwardVote::where('award_id', $award->id)
+                        ->where('status', 'paid')
+                        ->sum('gross_amount');
 
                     return [
                         'id' => $award->id,

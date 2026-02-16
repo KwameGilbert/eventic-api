@@ -126,12 +126,7 @@ class AwardVote extends Model
      */
     public function getTotalAmount(): float
     {
-        $category = $this->category;
-        if (!$category) {
-            return 0;
-        }
-        
-        return $this->number_of_votes * $category->cost_per_vote;
+        return (float) ($this->gross_amount ?? 0);
     }
 
     /**

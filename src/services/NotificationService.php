@@ -280,7 +280,7 @@ class NotificationService
     /**
      * Send password changed confirmation
      */
-    public function sendPasswordChanged(string $email, string $phone = null): bool
+    public function sendPasswordChanged(string $email, ?string $phone = null): bool
     {
         return $this->send([
             'type' => 'password_changed',
