@@ -25,6 +25,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property float $payment_fee
  * @property string $status
  * @property string $reference
+ * @property string|null $payment_token
+ * @property string|null $payment_transaction_id
  * @property string|null $voter_phone
  * @property string|null $nominee_code
  * @property \Illuminate\Support\Carbon|null $created_at
@@ -50,6 +52,8 @@ class AwardVote extends Model
         'payment_fee',
         'status',
         'reference',
+        'payment_token',
+        'payment_transaction_id',
         'voter_name',
         'voter_email',
         'voter_phone',

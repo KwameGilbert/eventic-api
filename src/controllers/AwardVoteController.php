@@ -121,6 +121,9 @@ class AwardVoteController
             ];
 
             $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
+            
+            // Save payment token
+            $vote->update(['payment_token' => $expressPayResponse['token']]);
 
             // Return payment information
             $voteDetails = [
@@ -242,7 +245,23 @@ class AwardVoteController
                 $balance->addPendingEarnings((float) $vote->organizer_amount);
             }
 
-            return ResponseHelper::success($response, 'Vote payment confirmed successfully', $vote->fresh()->getDetails());
+            $voteDetails = $vote->fresh()->getDetails();
+            $voteDetails['nominee'] = $vote->nominee ? [
+                'id' => $vote->nominee->id,
+                'name' => $vote->nominee->name,
+                'image' => $vote->nominee->image,
+            ] : null;
+            $voteDetails['category'] = $vote->category ? [
+                'id' => $vote->category->id,
+                'name' => $vote->category->name,
+            ] : null;
+            $voteDetails['award'] = $vote->award ? [
+                'id' => $vote->award->id,
+                'title' => $vote->award->title,
+                'slug' => $vote->award->slug,
+            ] : null;
+
+            return ResponseHelper::success($response, 'Vote payment confirmed successfully', $voteDetails);
         } catch (Exception $e) {
             error_log("Vote confirmation exception: " . $e->getMessage());
             return ResponseHelper::error($response, 'Failed to confirm vote payment', 500, $e->getMessage());
