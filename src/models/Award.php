@@ -458,6 +458,7 @@ class Award extends Model
                 $categoryData = [
                     'id' => $category->id,
                     'name' => $category->name,
+                    
                     'description' => $category->description,
                     'image' => $category->image,
                     'cost_per_vote' => (float) $category->cost_per_vote,

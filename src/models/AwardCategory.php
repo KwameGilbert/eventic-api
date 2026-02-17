@@ -42,6 +42,7 @@ class AwardCategory extends Model
         'voting_start',
         'voting_end',
         'status',
+        'voting_status',
         'display_order',
     ];
 

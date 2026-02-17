@@ -658,6 +658,7 @@ class AwardController
                 $leaderboard[] = [
                     'category_id' => $category->id,
                     'category_name' => $category->name,
+                    'voting_status' => $category->voting_status,
                     'nominees' => $categoryLeaderboard,
                 ];
             }
