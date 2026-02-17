@@ -1,0 +1,22 @@
+###
+POST https://sandbox.expresspaygh.com/api/direct/submit.php
+Content-Type: application/x-www-form-urlencoded
+
+{
+    "merchant-id":"281147842201",
+    "api-key":"vUCB6DlImp2O8BNeyv2ek-b9KpTBSOlvHhOWiC2reD-aH7dbDtqznC3g4aHg7WR-fK1rMf2DFSfp712GIvo",
+    "currency":"GHS",
+    "amount": 55.00,
+    "order-id":"90bffe561179ed97",
+    "post-url":"http://localhost:5000/"
+}
+
+###
+
+POST https://sandbox.expresspaygh.com/api/checkout.php
+Content-Type: application/x-www-form-urlencoded
+
+{
+
+}
+###
