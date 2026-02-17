@@ -107,8 +107,11 @@ class AwardVoteController
             // Let's use a generic formatting for now.
             
             $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
-            $redirectUrl = $frontendUrl . '/payment/callback'; // Adjust route as needed
+            $apiUrl = $_ENV['APP_URL'] ?? 'http://localhost:8080';
+            $redirectUrl = $frontendUrl . '/payment/callback';
+            $postUrl = $apiUrl . '/v1/votes/ipn';
 
+            // Standard ExpressPay checkout redirect flow
             $paymentData = [
                 'firstname' => $data['voter_name'] ? explode(' ', $data['voter_name'])[0] : 'Guest',
                 'lastname' => $data['voter_name'] && count(explode(' ', $data['voter_name'])) > 1 ? explode(' ', $data['voter_name'])[1] : 'Voter',
@@ -117,33 +120,23 @@ class AwardVoteController
                 'amount' => $totalAmount,
                 'order_id' => $reference,
                 'redirect_url' => $redirectUrl,
+                'post_url' => $postUrl,
                 'description' => "Vote for {$nominee->name} ({$numberOfVotes} votes)",
             ];
 
-            $paymentMethod = $data['payment_method'] ?? 'checkout';
-            $expressPayResponse = [];
-
-            if ($paymentMethod === 'momo' && !empty($data['momo_number']) && !empty($data['momo_network'])) {
-                $paymentData['momo_number'] = $data['momo_number'];
-                $paymentData['momo_network'] = $data['momo_network'];
-                $expressPayResponse = $this->expressPayService->initiateMoMoDirect($paymentData);
-                $isDirect = true;
-            } else {
-                $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
-                $isDirect = false;
-            }
+            $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
             
             // Save payment token
             $vote->update(['payment_token' => $expressPayResponse['token']]);
 
-            // Return payment information
+            // Return payment information with checkout URL
             $voteDetails = [
                 'vote_id' => $vote->id,
                 'reference' => $reference,
                 'payment_token' => $expressPayResponse['token'],
-                'checkout_url' => $expressPayResponse['redirect_url'] ?? null,
-                'payment_method' => $paymentMethod,
-                'is_direct' => $isDirect,
+                'checkout_url' => $expressPayResponse['redirect_url'],
+                'payment_method' => 'checkout',
+                'is_direct' => false,
                 'nominee' => [
                     'id' => $nominee->id,
                     'nominee_code' => $nominee->nominee_code,
@@ -193,8 +186,16 @@ class AwardVoteController
                 $token = $data['token'];
                 $paymentStatus = $this->expressPayService->queryTransaction($token);
                 
-                if ($paymentStatus['status'] !== 'success') {
-                    // Try to find the vote to return details for redirect
+                // Query returns: status = 'paid', 'pending', or 'failed'
+                if ($paymentStatus['status'] === 'pending') {
+                    return ResponseHelper::error($response, 'Payment is still pending. Please authorize on your phone.', 202, [
+                        'status' => 'pending',
+                        'token' => $token,
+                    ]);
+                }
+
+                if ($paymentStatus['status'] !== 'paid') {
+                    // Try to find the vote to return details
                     $reference = $paymentStatus['order_id'] ?? null;
                     if ($reference) {
                         $vote = AwardVote::where('reference', $reference)
@@ -278,6 +279,95 @@ class AwardVoteController
         } catch (Exception $e) {
             error_log("Vote confirmation exception: " . $e->getMessage());
             return ResponseHelper::error($response, 'Failed to confirm vote payment', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle ExpressPay IPN (post-url) callback
+     * POST /v1/votes/ipn
+     * 
+     * ExpressPay Merchant Direct API Step 3:
+     * When a pending MoMo payment completes, ExpressPay POSTs to our post-url
+     * with order-id and token. We must query the transaction status (Step 4),
+     * update our state, and return HTTP 200 immediately.
+     */
+    public function handleIPN(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $data = $request->getParsedBody();
+            
+            $orderId = $data['order-id'] ?? $data['order_id'] ?? null;
+            $token = $data['token'] ?? null;
+
+            error_log("ExpressPay IPN received: order-id={$orderId}, token={$token}");
+
+            if (empty($token)) {
+                error_log("IPN Error: No token provided");
+                $response->getBody()->write('OK');
+                return $response->withStatus(200); // Must always return 200
+            }
+
+            // Step 4: Query ExpressPay to verify the actual transaction status
+            $paymentStatus = $this->expressPayService->queryTransaction($token);
+
+            error_log("IPN Query result: " . json_encode($paymentStatus));
+
+            if ($paymentStatus['status'] !== 'paid') {
+                error_log("IPN: Payment not yet confirmed. Status: {$paymentStatus['status']}");
+                $response->getBody()->write('OK');
+                return $response->withStatus(200);
+            }
+
+            // Find vote by reference (order_id = our reference)
+            $reference = $paymentStatus['order_id'] ?? $orderId;
+            $vote = AwardVote::with(['category', 'award.organizer'])->where('reference', $reference)->first();
+
+            if (!$vote) {
+                error_log("IPN Error: Vote not found for reference: {$reference}");
+                $response->getBody()->write('OK');
+                return $response->withStatus(200);
+            }
+
+            // Already paid - no action needed
+            if ($vote->isPaid()) {
+                error_log("IPN: Vote already paid. Reference: {$reference}");
+                $response->getBody()->write('OK');
+                return $response->withStatus(200);
+            }
+
+            // Mark vote as paid
+            $vote->status = 'paid';
+            $vote->save();
+
+            error_log("IPN: Vote confirmed. ID: {$vote->id}, Reference: {$reference}");
+
+            // Create transaction and update organizer balance
+            $award = $vote->award;
+            if ($award && $award->organizer) {
+                $organizerId = $award->organizer->id;
+
+                Transaction::createVotePurchase(
+                    $organizerId,
+                    $vote->award_id,
+                    $vote->id,
+                    (float) $vote->gross_amount,
+                    (float) $vote->admin_amount,
+                    (float) $vote->organizer_amount,
+                    (float) $vote->payment_fee,
+                    "Vote purchase (IPN): {$award->title}"
+                );
+
+                $balance = OrganizerBalance::getOrCreate($organizerId);
+                $balance->addPendingEarnings((float) $vote->organizer_amount);
+            }
+
+            $response->getBody()->write('OK');
+            return $response->withStatus(200);
+        } catch (Exception $e) {
+            error_log("IPN Exception: " . $e->getMessage());
+            // Always return 200 to ExpressPay so they don't keep retrying
+            $response->getBody()->write('OK');
+            return $response->withStatus(200);
         }
     }
 

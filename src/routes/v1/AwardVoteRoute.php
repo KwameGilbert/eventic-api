@@ -20,6 +20,9 @@ return function (App $app): void {
         // Confirm vote payment (callback from payment gateway)
         $group->post('/votes/confirm', [$voteController, 'confirmPayment']);
 
+        // ExpressPay IPN callback (post-url for Merchant Direct API Step 3)
+        $group->post('/votes/ipn', [$voteController, 'handleIPN']);
+
         // Get vote details by reference
         $group->get('/votes/reference/{reference}', [$voteController, 'getByReference']);
 
