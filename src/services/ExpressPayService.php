@@ -48,14 +48,64 @@ class ExpressPayService
         $response = $this->makeRequest('/submit.php', $payload);
 
         if (isset($response['status']) && $response['status'] === 1) {
+            $checkoutBase = str_replace('/api', '', $this->baseUrl);
             return [
                 'success' => true,
                 'token' => $response['token'],
-                'redirect_url' => "https://sandbox.expresspaygh.com/api/checkout.php?token=" . $response['token']
+                'redirect_url' => $checkoutBase . "/checkout.php?token=" . $response['token']
             ];
         }
 
         throw new Exception($response['message'] ?? 'Failed to initiate payment');
+    }
+
+    /**
+     * Initiate a direct Mobile Money charge (STK Push)
+     * 
+     * @param array $data Charge details
+     * @return array Response from ExpressPay
+     */
+    public function initiateMoMoDirect(array $data): array
+    {
+        // Step 1: Get a token via submit.php (same as submitInvoice)
+        $invoice = $this->submitInvoice($data);
+        $token = $invoice['token'];
+
+        // Step 2: Trigger MoMo STK Push via mobile-money.php
+        $networkCode = $this->mapNetworkCode($data['momo_network'] ?? 'MTN');
+        
+        $momoPayload = [
+            'merchant-id' => $this->merchantId,
+            'api-key' => $this->apiKey,
+            'token' => $token,
+            'network-code' => $networkCode,
+        ];
+
+        $response = $this->makeRequest('/mobile-money.php', $momoPayload);
+
+        if (isset($response['status']) && $response['status'] === 1) {
+            return [
+                'success' => true,
+                'token' => $token,
+                'message' => $response['message'] ?? 'MoMo charge initiated. Check your phone.',
+                'raw' => $response
+            ];
+        }
+
+        throw new Exception($response['message'] ?? $response['error-message'] ?? 'Direct MoMo initiation failed');
+    }
+
+    /**
+     * Map frontend network names to ExpressPay codes
+     */
+    private function mapNetworkCode(string $network): string
+    {
+        return match(strtolower($network)) {
+            'mtn' => 'MTN',
+            'vodafone', 'telecel', 'voda' => 'VOD',
+            'airteltigo', 'airtel', 'tigo', 'tgo' => 'ATL',
+            default => 'MTN'
+        };
     }
 
     /**

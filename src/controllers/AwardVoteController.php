@@ -113,14 +113,25 @@ class AwardVoteController
                 'firstname' => $data['voter_name'] ? explode(' ', $data['voter_name'])[0] : 'Guest',
                 'lastname' => $data['voter_name'] && count(explode(' ', $data['voter_name'])) > 1 ? explode(' ', $data['voter_name'])[1] : 'Voter',
                 'email' => $data['voter_email'],
-                'phonenumber' => $data['voter_phone'] ?? '0000000000',
+                'phonenumber' => $data['voter_phone'] ?? $data['momo_number'] ?? '0000000000',
                 'amount' => $totalAmount,
                 'order_id' => $reference,
                 'redirect_url' => $redirectUrl,
                 'description' => "Vote for {$nominee->name} ({$numberOfVotes} votes)",
             ];
 
-            $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
+            $paymentMethod = $data['payment_method'] ?? 'checkout';
+            $expressPayResponse = [];
+
+            if ($paymentMethod === 'momo' && !empty($data['momo_number']) && !empty($data['momo_network'])) {
+                $paymentData['momo_number'] = $data['momo_number'];
+                $paymentData['momo_network'] = $data['momo_network'];
+                $expressPayResponse = $this->expressPayService->initiateMoMoDirect($paymentData);
+                $isDirect = true;
+            } else {
+                $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
+                $isDirect = false;
+            }
             
             // Save payment token
             $vote->update(['payment_token' => $expressPayResponse['token']]);
@@ -130,7 +141,9 @@ class AwardVoteController
                 'vote_id' => $vote->id,
                 'reference' => $reference,
                 'payment_token' => $expressPayResponse['token'],
-                'checkout_url' => $expressPayResponse['redirect_url'],
+                'checkout_url' => $expressPayResponse['redirect_url'] ?? null,
+                'payment_method' => $paymentMethod,
+                'is_direct' => $isDirect,
                 'nominee' => [
                     'id' => $nominee->id,
                     'nominee_code' => $nominee->nominee_code,
@@ -153,7 +166,7 @@ class AwardVoteController
                 'status' => 'pending',
             ];
 
-            return ResponseHelper::success($response, 'Vote initiated successfully. Proceed to payment.', $voteDetails, 201);
+            return ResponseHelper::success($response, 'Vote initiated successfully.', $voteDetails, 201);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to initiate vote', 500, $e->getMessage());
         }
