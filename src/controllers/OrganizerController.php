@@ -1388,7 +1388,7 @@ class OrganizerController
     {
         try {
             $jwtUser = $request->getAttribute('user');
-            $awardId = $args['id'];
+            $awardIdOrSlug = $args['id'];
 
             // Get organizer profile
             $organizer = $this->getOrganizerContext($request, $jwtUser);
@@ -1401,7 +1401,8 @@ class OrganizerController
 
             // Get the award with relationships
             $award = Award::with(['organizer.user', 'categories.nominees', 'images'])
-                ->where('id', $awardId)
+                ->where('id', $awardIdOrSlug)
+                ->orWhere('slug', $awardIdOrSlug)
                 ->first();
 
             if (!$award) {
@@ -1427,7 +1428,7 @@ class OrganizerController
             ];
 
             // === GET RECENT VOTES ===
-            $recentVotes = AwardVote::where('award_id', $awardId)
+            $recentVotes = AwardVote::where('award_id', $award->id)
                 ->where('status', 'paid')
                 ->with(['nominee.category'])
                 ->orderBy('created_at', 'desc')
@@ -1451,7 +1452,7 @@ class OrganizerController
                 $date = Carbon::now()->subDays($i);
                 $dayName = $date->format('D');
 
-                $dayVotes = AwardVote::where('award_id', $awardId)
+                $dayVotes = AwardVote::where('award_id', $award->id)
                     ->where('status', 'paid')
                     ->whereDate('created_at', $date->toDateString())
                     ->sum('number_of_votes');
@@ -1467,7 +1468,7 @@ class OrganizerController
             $awardData['recent_votes'] = $recentVotes;
             $awardData['vote_analytics'] = $voteAnalytics;
             $awardData['transactions'] = AwardVote::with(['nominee', 'category'])
-                ->where('award_id', $awardId)
+                ->where('award_id', $award->id)
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc')
                 ->limit(100)
@@ -1640,30 +1641,30 @@ class OrganizerController
             // === MONTHLY TREND (Last 12 months) ===
             $monthlyTrend = $this->getMonthlyRevenueTrend($organizer->id);
 
-            // === TOP PERFORMERS ===
+            // === TOP PERFORMERS BY EARNINGS ===
             $topEvent = $events->sortByDesc(function ($event) {
                 return OrderItem::where('event_id', $event->id)
                     ->whereHas('order', function ($query) {
                         $query->where('status', 'paid');
                     })
-                    ->sum('total_price');
+                    ->sum('organizer_amount');
             })->first();
 
             $topAward = $awards->sortByDesc(function ($award) {
                 return AwardVote::where('award_id', $award->id)
                     ->where('status', 'paid')
-                    ->sum('number_of_votes');
+                    ->sum('organizer_amount');
             })->first();
 
             $topEventRevenue = $topEvent ? OrderItem::where('event_id', $topEvent->id)
                 ->whereHas('order', function ($query) {
                     $query->where('status', 'paid');
                 })
-                ->sum('total_price') : 0;
+                ->sum('organizer_amount') : 0;
 
-            $topAwardVotes = $topAward ? AwardVote::where('award_id', $topAward->id)
+            $topAwardEarnings = $topAward ? AwardVote::where('award_id', $topAward->id)
                 ->where('status', 'paid')
-                ->sum('number_of_votes') : 0;
+                ->sum('organizer_amount') : 0;
 
             $data = [
                 'summary' => [
@@ -1699,8 +1700,8 @@ class OrganizerController
                     'top_award' => $topAward ? [
                         'id' => $topAward->id,
                         'name' => $topAward->title,
-                        'votes' => intval($topAwardVotes),
-                        'revenue' => round(floatval($topAwardVotes) * 5, 2), // Assuming $5 per vote average
+                        'votes' => (int) AwardVote::where('award_id', $topAward->id)->where('status', 'paid')->sum('number_of_votes'),
+                        'revenue' => round(floatval($topAwardEarnings), 2),
                     ] : null,
                 ],
             ];
@@ -1747,9 +1748,15 @@ class OrganizerController
                     ->get();
 
                 $ticketsSold = Ticket::where('event_id', $event->id)->count();
-                $grossRevenue = $orderItems->sum('total_price');
-                $platformFee = $grossRevenue * 0.015; // 1.5%
-                $netRevenue = $grossRevenue - $platformFee;
+                $grossRevenue = (float) $orderItems->sum('total_price');
+                $platformFee = (float) $orderItems->sum('admin_amount');
+                $netRevenue = (float) $orderItems->sum('organizer_amount');
+
+                // Legacy fallback if share data is missing
+                if ($platformFee == 0 && $netRevenue == 0 && $grossRevenue > 0) {
+                    $platformFee = $grossRevenue * 0.015; // 1.5%
+                    $netRevenue = $grossRevenue - $platformFee;
+                }
 
                 $eventsData[] = [
                     'event_id' => $event->id,
@@ -1817,29 +1824,45 @@ class OrganizerController
 
                 $totalVotes = $votes->sum('number_of_votes');
                 
-                // Calculate revenue (cost_per_vote comes from categories)
-                $grossRevenue = 0;
+                // Sum gross, admin and organizer amounts directly
+                $grossRevenue = (float) $votes->sum('gross_amount');
+                $platformFee = (float) $votes->sum('admin_amount');
+                $netRevenue = (float) $votes->sum('organizer_amount');
+
+                // Legacy fallback if share data is missing
+                if ($grossRevenue == 0 && $totalVotes > 0) {
+                    foreach ($award->categories as $category) {
+                        $categoryVotes = AwardVote::where('category_id', $category->id)
+                            ->where('status', 'paid')
+                            ->sum('number_of_votes');
+                        
+                        $categoryRevenue = $categoryVotes * ($category->cost_per_vote ?? 5);
+                        $grossRevenue += $categoryRevenue;
+                    }
+                    $platformFee = $grossRevenue * 0.05; // 5% fallback
+                    $netRevenue = $grossRevenue - $platformFee;
+                }
+
                 $categoryBreakdown = [];
-                
                 foreach ($award->categories as $category) {
-                    $categoryVotes = AwardVote::where('category_id', $category->id)
+                    $catVotes = AwardVote::where('category_id', $category->id)
                         ->where('status', 'paid')
-                        ->sum('number_of_votes');
+                        ->get();
                     
-                    $categoryRevenue = $categoryVotes * ($category->cost_per_vote ?? 5);
-                    $grossRevenue += $categoryRevenue;
-                    
-                    if ($categoryVotes > 0) {
+                    $catGross = (float) $catVotes->sum('gross_amount');
+                    // Cat legacy fallback
+                    if ($catGross == 0 && $catVotes->count() > 0) {
+                        $catGross = $catVotes->sum('number_of_votes') * ($category->cost_per_vote ?? 5);
+                    }
+
+                    if ($catVotes->count() > 0) {
                         $categoryBreakdown[] = [
                             'category_name' => $category->name,
-                            'votes' => $categoryVotes,
-                            'revenue' => round($categoryRevenue, 2),
+                            'votes' => $catVotes->sum('number_of_votes'),
+                            'revenue' => round($catGross, 2),
                         ];
                     }
                 }
-
-                $platformFee = $grossRevenue * 0.05; // 5% for voting
-                $netRevenue = $grossRevenue - $platformFee;
 
                 $totalVoters = $votes->unique('voter_email')->count();
 
@@ -2025,21 +2048,16 @@ class OrganizerController
                 ->whereHas('order', function ($query) {
                     $query->where('status', 'paid');
                 })
-                ->sum('total_price');
+                ->sum('organizer_amount');
 
             // Awards revenue for this month
             $awardIds = Award::where('organizer_id', $organizerId)
                 ->whereBetween('ceremony_date', [$monthStart, $monthEnd])
                 ->pluck('id')->toArray();
             
-            $votes = AwardVote::whereIn('award_id', $awardIds)
+            $awardsRevenue = AwardVote::whereIn('award_id', $awardIds)
                 ->where('status', 'paid')
-                ->with('category')
-                ->get();
-            
-            $awardsRevenue = $votes->sum(function ($vote) {
-                return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
-            });
+                ->sum('organizer_amount');
 
             $trend[] = [
                 'month' => $month->format('M Y'),
