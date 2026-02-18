@@ -29,6 +29,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $status
  * @property string|null $description
  * @property array|null $metadata
+ * @property string|null $payment_method
+ * @property string|null $source
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
  */
@@ -65,6 +67,8 @@ class Transaction extends Model
         'status',
         'description',
         'metadata',
+        'payment_method',
+        'source',
     ];
 
     protected $casts = [
@@ -97,7 +101,9 @@ class Transaction extends Model
         float $adminAmount,
         float $organizerAmount,
         float $paymentFee,
-        ?string $description = null
+        ?string $description = null,
+        ?string $paymentMethod = null,
+        ?string $source = null
     ): self {
         return self::create([
             'reference' => self::generateReference('TKT'),
@@ -112,6 +118,8 @@ class Transaction extends Model
             'payment_fee' => $paymentFee,
             'status' => self::STATUS_COMPLETED,
             'description' => $description ?? "Ticket sale for order #{$orderId}",
+            'payment_method' => $paymentMethod,
+            'source' => $source,
         ]);
     }
 
@@ -126,7 +134,9 @@ class Transaction extends Model
         float $adminAmount,
         float $organizerAmount,
         float $paymentFee,
-        ?string $description = null
+        ?string $description = null,
+        ?string $paymentMethod = null,
+        ?string $source = null
     ): self {
         return self::create([
             'reference' => self::generateReference('VOT'),
@@ -140,6 +150,8 @@ class Transaction extends Model
             'payment_fee' => $paymentFee,
             'status' => self::STATUS_COMPLETED,
             'description' => $description ?? "Vote purchase for award #{$awardId}",
+            'payment_method' => $paymentMethod,
+            'source' => $source,
         ]);
     }
 

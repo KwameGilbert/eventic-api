@@ -477,7 +477,9 @@ class OrderController
                         (float) $item->admin_amount,
                         (float) $item->organizer_amount,
                         (float) $item->payment_fee,
-                        "Ticket sale: {$event->title}"
+                        "Ticket sale: {$event->title}",
+                        'expresspay',
+                        'website'
                     );
 
                     // Update organizer balance (add to pending)

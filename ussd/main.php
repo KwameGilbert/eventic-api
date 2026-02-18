@@ -257,6 +257,8 @@ switch ($level) {
                 'status' => 'pending',
                 'reference' => $reference,
                 'voter_phone' => $msisdn,
+                'payment_method' => 'mobile_money',
+                'source' => 'ussd',
             ]);
             
             $logger->info('Vote record created', ['vote_id' => $vote->id, 'reference' => $reference]);

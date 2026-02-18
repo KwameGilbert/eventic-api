@@ -96,6 +96,8 @@ class AwardVoteController
                 'voter_email' => $data['voter_email'],
                 'voter_phone' => $data['voter_phone'] ?? null,
                 'nominee_code' => $nominee->nominee_code,
+                'payment_method' => 'expresspay',
+                'source' => 'website',
             ]);
 
             // Initiate payment with ExpressPay
@@ -251,7 +253,9 @@ class AwardVoteController
                     (float) $vote->admin_amount,
                     (float) $vote->organizer_amount,
                     (float) $vote->payment_fee,
-                    "Vote purchase: {$award->title}"
+                    "Vote purchase: {$award->title}",
+                    $vote->payment_method,
+                    $vote->source
                 );
 
                 // Update organizer balance (add to pending)
@@ -354,7 +358,9 @@ class AwardVoteController
                     (float) $vote->admin_amount,
                     (float) $vote->organizer_amount,
                     (float) $vote->payment_fee,
-                    "Vote purchase (IPN): {$award->title}"
+                    "Vote purchase (IPN): {$award->title}",
+                    $vote->payment_method,
+                    $vote->source
                 );
 
                 $balance = OrganizerBalance::getOrCreate($organizerId);

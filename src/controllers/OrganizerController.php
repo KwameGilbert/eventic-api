@@ -1300,13 +1300,10 @@ class OrganizerController
                 'draft' => $awards->where('status', 'draft')->count(),
                 'completed' => $awards->where('status', 'completed')->count(),
                 'closed' => $awards->where('status', 'closed')->count(),
-                // Voting Open is a computed count (published awards with active voting)
-                'voting_open' => $awards->filter(function ($award) use ($now) {
+                // Voting Open uses the actual voting_status field from DB
+                'voting_open' => $awards->filter(function ($award) {
                     return $award->status === 'published' &&
-                        $award->voting_start &&
-                        $award->voting_end &&
-                        $award->voting_start <= $now &&
-                        $award->voting_end >= $now;
+                        $award->voting_status === 'open';
                 })->count(),
             ];
 
@@ -1320,21 +1317,6 @@ class OrganizerController
 
                 // Calculate revenue
                 $revenue = $award->getTotalRevenue();
-
-                // Determine voting status ONLY (separate from status)
-                // Voting status is only relevant for published awards
-                $votingStatus = null;
-                if ($award->status === 'published') {
-                    if ($award->voting_start && $award->voting_end) {
-                        if ($award->voting_start <= $now && $award->voting_end >= $now) {
-                            $votingStatus = 'Voting Open';
-                        } elseif ($now < $award->voting_start) {
-                            $votingStatus = 'Not Started';
-                        } elseif ($now > $award->voting_end) {
-                            $votingStatus = 'Voting Closed';
-                        }
-                    }
-                }
 
                 // Keep status as-is from database (enum: draft, completed, published, closed)
                 // DO NOT modify the status based on dates
@@ -1356,7 +1338,7 @@ class OrganizerController
                     'banner_image' => $bannerImage,
                     'image' => $bannerImage, // Fallback field for frontend compatibility
                     'status' => ucfirst($status), // Capitalize enum value: Draft, Completed, Published, Closed
-                    'voting_status' => $votingStatus, // Voting Open, Not Started, Voting Closed, or null
+                    'voting_status' => $award->voting_status, // 'open' or 'closed' from DB
                     'ceremony_date' => $award->ceremony_date ? Carbon::parse($award->ceremony_date)->format('M d, Y') : null,
                     'venue_name' => $award->venue_name ?? 'TBD',
                     'address' => $award->address,

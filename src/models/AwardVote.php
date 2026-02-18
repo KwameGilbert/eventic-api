@@ -29,6 +29,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $payment_transaction_id
  * @property string|null $voter_phone
  * @property string|null $nominee_code
+ * @property string|null $payment_method
+ * @property string|null $source
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -58,6 +60,8 @@ class AwardVote extends Model
         'voter_email',
         'voter_phone',
         'nominee_code',
+        'payment_method',
+        'source',
     ];
 
     protected $casts = [
@@ -149,6 +153,8 @@ class AwardVote extends Model
             'voter_name' => $this->voter_name,
             'voter_email' => $this->voter_email,
             'voter_phone' => $this->voter_phone,
+            'payment_method' => $this->payment_method,
+            'source' => $this->source,
             'total_amount' => $this->getTotalAmount(),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
