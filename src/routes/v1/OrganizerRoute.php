@@ -44,6 +44,7 @@ return function (App $app): void {
         
         // Award Details - fetch detailed data for a single award
         $group->get('/data/awards/{id}', [$organizerController, 'getAwardDetails']);
+        $group->get('/data/awards/{id}/transactions', [$organizerController, 'getAwardTransactions']);
 
         // Attendees - fetch all attendees/ticket holders for organizer's events
         $group->get('/data/attendees', [$organizerController, 'getAttendees']);

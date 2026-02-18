@@ -44,6 +44,7 @@ return function (App $app): void {
         // Award Management (Full Admin Control)
         $group->get('/awards', [$adminController, 'getAwards']);
         $group->get('/awards/{id}', [$adminController, 'getAwardDetail']);
+        $group->get('/awards/{id}/transactions', [$adminController, 'getAwardTransactions']);
         $group->put('/awards/{id}', [$adminController, 'updateAwardFull']);
         $group->put('/awards/{id}/status', [$adminController, 'updateAwardStatus']);
         $group->put('/awards/{id}/feature', [$adminController, 'toggleAwardFeatured']);

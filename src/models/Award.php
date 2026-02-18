@@ -402,24 +402,38 @@ class Award extends Model
         // Eager load ALL vote counts for the award in ONE query to avoid N+1 in maps
         $voteStats = $this->votes()
             ->where('status', 'paid')
-            ->selectRaw('category_id, nominee_id, SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue')
+            ->selectRaw('category_id, nominee_id, SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings')
             ->groupBy('category_id', 'nominee_id')
             ->get();
             
         $nomineeVotesMap = [];
         $nomineeRevenueMap = [];
+        $nomineeAdminMap = [];
+        $nomineeOrganizerMap = [];
         $categoryVotesMap = [];
         $categoryRevenueMap = [];
+        $categoryAdminMap = [];
+        $categoryOrganizerMap = [];
         $awardTotalVotes = 0;
         $awardTotalRevenue = 0;
+        $awardTotalAdmin = 0;
+        $awardTotalOrganizer = 0;
         
         foreach ($voteStats as $stat) {
             $nomineeVotesMap[$stat->nominee_id] = (int) $stat->total_votes;
             $nomineeRevenueMap[$stat->nominee_id] = (float) $stat->total_revenue;
+            $nomineeAdminMap[$stat->nominee_id] = (float) $stat->admin_earnings;
+            $nomineeOrganizerMap[$stat->nominee_id] = (float) $stat->organizer_earnings;
+            
             $categoryVotesMap[$stat->category_id] = ($categoryVotesMap[$stat->category_id] ?? 0) + (int) $stat->total_votes;
             $categoryRevenueMap[$stat->category_id] = ($categoryRevenueMap[$stat->category_id] ?? 0) + (float) $stat->total_revenue;
+            $categoryAdminMap[$stat->category_id] = ($categoryAdminMap[$stat->category_id] ?? 0) + (float) $stat->admin_earnings;
+            $categoryOrganizerMap[$stat->category_id] = ($categoryOrganizerMap[$stat->category_id] ?? 0) + (float) $stat->organizer_earnings;
+            
             $awardTotalVotes += (int) $stat->total_votes;
             $awardTotalRevenue += (float) $stat->total_revenue;
+            $awardTotalAdmin += (float) $stat->admin_earnings;
+            $awardTotalOrganizer += (float) $stat->organizer_earnings;
         }
 
         // Check if user is organizer or admin
@@ -473,6 +487,8 @@ class Award extends Model
                 if ($isOrganizerOrAdmin) {
                     $categoryData['total_votes'] = $categoryVotesMap[$category->id] ?? 0;
                     $categoryData['revenue'] = (float) ($categoryRevenueMap[$category->id] ?? 0);
+                    $categoryData['admin_earnings'] = (float) ($categoryAdminMap[$category->id] ?? 0);
+                    $categoryData['organizer_earnings'] = (float) ($categoryOrganizerMap[$category->id] ?? 0);
                     $categoryData['internal_voting_status'] = $category->voting_status;
                 }
 
@@ -491,6 +507,8 @@ class Award extends Model
                         $nomineeData['total_votes'] = $nomineeVotesMap[$nominee->id] ?? 0;
                         if ($isOrganizerOrAdmin) {
                             $nomineeData['revenue'] = $nomineeRevenueMap[$nominee->id] ?? 0;
+                            $nomineeData['admin_earnings'] = $nomineeAdminMap[$nominee->id] ?? 0;
+                            $nomineeData['organizer_earnings'] = $nomineeOrganizerMap[$nominee->id] ?? 0;
                         }
                     }
                     
@@ -533,6 +551,8 @@ class Award extends Model
             // Use pre-calculated bulk stats
             $details['total_votes'] = $awardTotalVotes;
             $details['total_revenue'] = $awardTotalRevenue;
+            $details['total_admin_earnings'] = $awardTotalAdmin;
+            $details['total_organizer_earnings'] = $awardTotalOrganizer;
 
             // Construction of stats object for AwardStats component
             $details['stats'] = [
@@ -540,6 +560,8 @@ class Award extends Model
                 'total_nominees' => $this->nominees->count(),
                 'total_votes' => $awardTotalVotes,
                 'revenue' => $awardTotalRevenue,
+                'admin_earnings' => $awardTotalAdmin,
+                'organizer_earnings' => $awardTotalOrganizer,
                 'unique_voters' => $this->getUniqueVotersCount(),
             ];
         }
@@ -568,6 +590,8 @@ class Award extends Model
             'categories_count' => $this->categories_count ?? $this->categories()->count(),
             'total_votes' => (int) ($this->votes_sum_number_of_votes ?? $this->getTotalVotes()),
             'total_revenue' => (float) ($this->votes_sum_gross_amount ?? $this->getTotalRevenue()),
+            'admin_earnings' => (float) $this->votes()->where('status', 'paid')->sum('admin_amount'),
+            'organizer_earnings' => (float) $this->votes()->where('status', 'paid')->sum('organizer_amount'),
         ];
     }
 

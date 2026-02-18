@@ -1466,10 +1466,132 @@ class OrganizerController
             $awardData['stats'] = $stats;
             $awardData['recent_votes'] = $recentVotes;
             $awardData['vote_analytics'] = $voteAnalytics;
+            $awardData['transactions'] = AwardVote::with(['nominee', 'category'])
+                ->where('award_id', $awardId)
+                ->where('status', 'paid')
+                ->orderBy('created_at', 'desc')
+                ->limit(100)
+                ->get()
+                ->map(function ($vote) {
+                    return [
+                        'id' => $vote->id,
+                        'voter_name' => $vote->voter_name ?? 'Anonymous',
+                        'voter_email' => $vote->voter_email,
+                        'voter_phone' => $vote->voter_phone,
+                        'nominee_name' => $vote->nominee ? $vote->nominee->name : 'Unknown',
+                        'nominee_code' => $vote->nominee_code,
+                        'category_name' => $vote->category ? $vote->category->name : 'Unknown',
+                        'number_of_votes' => $vote->number_of_votes,
+                        'cost_per_vote' => (float) $vote->cost_per_vote,
+                        'gross_amount' => (float) $vote->gross_amount,
+                        'admin_amount' => (float) $vote->admin_amount,
+                        'organizer_amount' => (float) $vote->organizer_amount,
+                        'payment_fee' => (float) $vote->payment_fee,
+                        'status' => $vote->status,
+                        'reference' => $vote->reference,
+                        'payment_method' => $vote->payment_method,
+                        'source' => $vote->source,
+                        'created_at' => $vote->created_at ? $vote->created_at->toIso8601String() : null,
+                    ];
+                });
 
             return ResponseHelper::success($response, 'Award details fetched successfully', $awardData);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch award details', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get all transactions (votes) for a specific award
+     * GET /v1/organizers/data/awards/{id}/transactions
+     */
+    public function getAwardTransactions(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $jwtUser = $request->getAttribute('user');
+            $awardId = $args['id'];
+
+            // Get organizer profile
+            $organizer = $this->getOrganizerContext($request, $jwtUser);
+            if (!$organizer) {
+                return ResponseHelper::error($response, 'Organizer profile not found', 404);
+            }
+
+            $award = Award::find($awardId);
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Authorization: Check if organizer owns this award
+            if (!in_array($jwtUser->role, ['admin', 'super_admin']) && $award->organizer_id !== $organizer->id) {
+                return ResponseHelper::error($response, 'Unauthorized: You do not own this award', 403);
+            }
+
+            // Get query parameters for filters
+            $params = $request->getQueryParams();
+            $status = $params['status'] ?? 'paid';
+            $search = $params['search'] ?? null;
+            $categoryId = $params['category_id'] ?? null;
+            $perPage = (int) ($params['per_page'] ?? 50);
+
+            $query = AwardVote::with(['nominee', 'category'])
+                ->where('award_id', $awardId);
+
+            if ($status && $status !== 'all') {
+                $query->where('status', $status);
+            }
+
+            if ($categoryId) {
+                $query->where('category_id', $categoryId);
+            }
+
+            if ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('voter_name', 'like', "%$search%")
+                      ->orWhere('voter_email', 'like', "%$search%")
+                      ->orWhere('voter_phone', 'like', "%$search%")
+                      ->orWhere('reference', 'like', "%$search%")
+                      ->orWhere('nominee_code', 'like', "%$search%");
+                });
+            }
+
+            $transactions = $query->orderBy('created_at', 'desc')
+                ->paginate($perPage);
+
+            $data = [
+                'transactions' => array_map(function ($vote) {
+                    return [
+                        'id' => $vote->id,
+                        'voter_name' => $vote->voter_name ?? 'Anonymous',
+                        'voter_email' => $vote->voter_email,
+                        'voter_phone' => $vote->voter_phone,
+                        'nominee_name' => $vote->nominee ? $vote->nominee->name : 'Unknown',
+                        'nominee_code' => $vote->nominee_code,
+                        'category_name' => $vote->category ? $vote->category->name : 'Unknown',
+                        'number_of_votes' => $vote->number_of_votes,
+                        'cost_per_vote' => (float) $vote->cost_per_vote,
+                        'gross_amount' => (float) $vote->gross_amount,
+                        'admin_amount' => (float) $vote->admin_amount,
+                        'organizer_amount' => (float) $vote->organizer_amount,
+                        'payment_fee' => (float) $vote->payment_fee,
+                        'status' => $vote->status,
+                        'reference' => $vote->reference,
+                        'payment_method' => $vote->payment_method,
+                        'source' => $vote->source,
+                        'created_at' => $vote->created_at ? $vote->created_at->toIso8601String() : null,
+                    ];
+                }, $transactions->items()),
+                'pagination' => [
+                    'total' => $transactions->total(),
+                    'current_page' => $transactions->currentPage(),
+                    'last_page' => $transactions->lastPage(),
+                    'per_page' => $transactions->perPage(),
+                ]
+            ];
+
+            return ResponseHelper::success($response, 'Award transactions fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch award transactions', 500, $e->getMessage());
         }
     }
 

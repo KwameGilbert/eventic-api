@@ -1,0 +1,6 @@
+###
+GET http://app.eventic.com/v1/admin/dashboard
+Content-Type: application/json
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJldmVudGljLWFwaSIsImlhdCI6MTc3MTQwMDIxNiwiZXhwIjoxMDAwMDAwMDE3NzE0MDAyMTUsImRhdGEiOnsiaWQiOjEsImVtYWlsIjoiYWRtaW5AZXZlbnRpYy5jb20iLCJyb2xlIjoiYWRtaW4iLCJzdGF0dXMiOiJhY3RpdmUifX0.58e1wUi4rSclNvV2iTYQn_iKdfIpuz-MQO1dgkFvyQ8
+
+###

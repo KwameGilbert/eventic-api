@@ -86,7 +86,14 @@ class AdminController
                 ->sum('gross_amount');
 
             $totalRevenue = $totalTicketRevenue + $totalVoteRevenue;
-            $platformFees = ($totalTicketRevenue * 0.015) + ($totalVoteRevenue * 0.05); // Note: 0.05 is a placeholder/average, actual split is award-specific
+            
+            // Sum actual platform shares from database
+            $ticketAdminFees = (float) OrderItem::whereHas('order', function ($query) {
+                $query->where('status', 'paid');
+            })->sum('admin_amount');
+            
+            $voteAdminFees = (float) AwardVote::where('status', 'paid')->sum('admin_amount');
+            $platformFees = $ticketAdminFees + $voteAdminFees;
 
             // Orders & Sales
             $totalOrders = Order::where('status', 'paid')->count();
@@ -881,16 +888,16 @@ class AdminController
                 ->orderBy('created_at', 'desc')
                 ->get()
                 ->map(function ($award) {
-                    // Calculate total votes for this award
-                    $totalVotes = AwardVote::whereHas('category', function ($query) use ($award) {
-                        $query->where('award_id', $award->id);
-                    })
-                    ->where('status', 'paid')
-                    ->sum('number_of_votes');
-
-                    $totalRevenue = (float) AwardVote::where('award_id', $award->id)
+                    // Calculate total votes and revenue for this award
+                    $awardStats = AwardVote::where('award_id', $award->id)
                         ->where('status', 'paid')
-                        ->sum('gross_amount');
+                        ->selectRaw('SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings')
+                        ->first();
+
+                    $totalVotes = (int) ($awardStats->total_votes ?? 0);
+                    $totalRevenue = (float) ($awardStats->total_revenue ?? 0);
+                    $adminEarnings = (float) ($awardStats->admin_earnings ?? 0);
+                    $organizerEarnings = (float) ($awardStats->organizer_earnings ?? 0);
 
                     return [
                         'id' => $award->id,
@@ -910,6 +917,8 @@ class AdminController
                         'categories_count' => $award->categories_count ?? 0,
                         'total_votes' => $totalVotes,
                         'total_revenue' => round($totalRevenue, 2),
+                        'admin_earnings' => round($adminEarnings, 2),
+                        'organizer_earnings' => round($organizerEarnings, 2),
                         'created_at' => $award->created_at->toIso8601String(),
                         'updated_at' => $award->updated_at->toIso8601String(),
                     ];
@@ -1061,31 +1070,34 @@ class AdminController
             }
 
             // Calculate total votes and revenue
-            $totalVotes = AwardVote::whereHas('category', function ($query) use ($awardId) {
-                $query->where('award_id', $awardId);
-            })
-            ->where('status', 'paid')
-            ->sum('number_of_votes');
+            $totalVotes = (int) AwardVote::where('award_id', $awardId)
+                ->where('status', 'paid')
+                ->sum('number_of_votes');
 
-            $votes = AwardVote::whereHas('category', function ($query) use ($awardId) {
-                $query->where('award_id', $awardId);
-            })
-            ->where('status', 'paid')
-            ->with('category')
-            ->get();
+            // Sum gross amount and admin share directly from votes table instead of calculating on the fly
+            $voteStats = AwardVote::where('award_id', $awardId)
+                ->where('status', 'paid')
+                ->selectRaw('SUM(gross_amount) as total_revenue, SUM(admin_amount) as total_admin_earnings, SUM(organizer_amount) as total_organizer_earnings')
+                ->first();
 
-            $totalRevenue = (float) $votes->sum(function ($vote) {
-                return $vote->number_of_votes * ($vote->category->cost_per_vote ?? 5);
-            });
+            $totalRevenue = (float) ($voteStats->total_revenue ?? 0);
+            $totalAdminEarnings = (float) ($voteStats->total_admin_earnings ?? 0);
+            $totalOrganizerEarnings = (float) ($voteStats->total_organizer_earnings ?? 0);
 
             // Build categories with nominees and vote counts
             $categoriesData = [];
             $totalNominees = 0;
             
             foreach ($award->categories as $category) {
-                $categoryVotes = AwardVote::where('category_id', $category->id)
+                $categoryStats = AwardVote::where('category_id', $category->id)
                     ->where('status', 'paid')
-                    ->sum('number_of_votes');
+                    ->selectRaw('SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings')
+                    ->first();
+                
+                $categoryVotes = (int) ($categoryStats->total_votes ?? 0);
+                $categoryRevenue = (float) ($categoryStats->total_revenue ?? 0);
+                $categoryAdminEarnings = (float) ($categoryStats->admin_earnings ?? 0);
+                $categoryOrganizerEarnings = (float) ($categoryStats->organizer_earnings ?? 0);
                 
                 $nomineesData = [];
                 foreach ($category->nominees as $nominee) {
@@ -1111,7 +1123,10 @@ class AdminController
                     'description' => $category->description,
                     'cost_per_vote' => (float) ($category->cost_per_vote ?? 5),
                     'voting_status' => $category->voting_status,
-                    'total_votes' => (int) $categoryVotes,
+                    'total_votes' => $categoryVotes,
+                    'total_revenue' => round($categoryRevenue, 2),
+                    'admin_earnings' => round($categoryAdminEarnings, 2),
+                    'organizer_earnings' => round($categoryOrganizerEarnings, 2),
                     'nominees' => $nomineesData,
                     'display_order' => $category->display_order,
                 ];
@@ -1149,9 +1164,39 @@ class AdminController
                 'platform_fee_percentage' => (float) ($award->admin_share_percent ?? 5.0),
                 'categories_count' => $award->categories->count(),
                 'nominees_count' => $totalNominees,
-                'total_votes' => (int) $totalVotes,
+                'total_votes' => $totalVotes,
                 'total_revenue' => round($totalRevenue, 2),
+                'total_admin_earnings' => round($totalAdminEarnings, 2),
+                'total_organizer_earnings' => round($totalOrganizerEarnings, 2),
                 'categories' => $categoriesData,
+                'transactions' => AwardVote::with(['nominee', 'category'])
+                    ->where('award_id', $awardId)
+                    ->where('status', 'paid')
+                    ->orderBy('created_at', 'desc')
+                    ->limit(100)
+                    ->get()
+                    ->map(function ($vote) {
+                        return [
+                            'id' => $vote->id,
+                            'voter_name' => $vote->voter_name ?? 'Anonymous',
+                            'voter_email' => $vote->voter_email,
+                            'voter_phone' => $vote->voter_phone,
+                            'nominee_name' => $vote->nominee ? $vote->nominee->name : 'Unknown',
+                            'nominee_code' => $vote->nominee_code,
+                            'category_name' => $vote->category ? $vote->category->name : 'Unknown',
+                            'number_of_votes' => $vote->number_of_votes,
+                            'cost_per_vote' => (float) $vote->cost_per_vote,
+                            'gross_amount' => (float) $vote->gross_amount,
+                            'admin_amount' => (float) $vote->admin_amount,
+                            'organizer_amount' => (float) $vote->organizer_amount,
+                            'payment_fee' => (float) $vote->payment_fee,
+                            'status' => $vote->status,
+                            'reference' => $vote->reference,
+                            'payment_method' => $vote->payment_method,
+                            'source' => $vote->source,
+                            'created_at' => $vote->created_at ? $vote->created_at->toIso8601String() : null,
+                        ];
+                    }),
                 'created_at' => $award->created_at->toIso8601String(),
                 'updated_at' => $award->updated_at->toIso8601String(),
             ];
@@ -1159,6 +1204,88 @@ class AdminController
             return ResponseHelper::success($response, 'Award details fetched successfully', ['award' => $awardData]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch award details', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get all transactions (votes) for a specific award
+     * GET /v1/admin/awards/{id}/transactions
+     */
+    public function getAwardTransactions(Request $request, Response $response, array $args): Response
+    {
+        try {
+            $awardId = $args['id'];
+            $award = Award::find($awardId);
+
+            if (!$award) {
+                return ResponseHelper::error($response, 'Award not found', 404);
+            }
+
+            // Get query parameters for filters
+            $params = $request->getQueryParams();
+            $status = $params['status'] ?? 'paid'; // Default to paid votes
+            $search = $params['search'] ?? null;
+            $categoryId = $params['category_id'] ?? null;
+            $perPage = (int) ($params['per_page'] ?? 50);
+
+            $query = AwardVote::with(['nominee', 'category'])
+                ->where('award_id', $awardId);
+
+            if ($status && $status !== 'all') {
+                $query->where('status', $status);
+            }
+
+            if ($categoryId) {
+                $query->where('category_id', $categoryId);
+            }
+
+            if ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('voter_name', 'like', "%$search%")
+                      ->orWhere('voter_email', 'like', "%$search%")
+                      ->orWhere('voter_phone', 'like', "%$search%")
+                      ->orWhere('reference', 'like', "%$search%")
+                      ->orWhere('nominee_code', 'like', "%$search%");
+                });
+            }
+
+            $transactions = $query->orderBy('created_at', 'desc')
+                ->paginate($perPage);
+
+            $data = [
+                'transactions' => array_map(function ($vote) {
+                    return [
+                        'id' => $vote->id,
+                        'voter_name' => $vote->voter_name ?? 'Anonymous',
+                        'voter_email' => $vote->voter_email,
+                        'voter_phone' => $vote->voter_phone,
+                        'nominee_name' => $vote->nominee ? $vote->nominee->name : 'Unknown',
+                        'nominee_code' => $vote->nominee_code,
+                        'category_name' => $vote->category ? $vote->category->name : 'Unknown',
+                        'number_of_votes' => $vote->number_of_votes,
+                        'cost_per_vote' => (float) $vote->cost_per_vote,
+                        'gross_amount' => (float) $vote->gross_amount,
+                        'admin_amount' => (float) $vote->admin_amount,
+                        'organizer_amount' => (float) $vote->organizer_amount,
+                        'payment_fee' => (float) $vote->payment_fee,
+                        'status' => $vote->status,
+                        'reference' => $vote->reference,
+                        'payment_method' => $vote->payment_method,
+                        'source' => $vote->source,
+                        'created_at' => $vote->created_at ? $vote->created_at->toIso8601String() : null,
+                    ];
+                }, $transactions->items()),
+                'pagination' => [
+                    'total' => $transactions->total(),
+                    'current_page' => $transactions->currentPage(),
+                    'last_page' => $transactions->lastPage(),
+                    'per_page' => $transactions->perPage(),
+                ]
+            ];
+
+            return ResponseHelper::success($response, 'Award transactions fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch award transactions', 500, $e->getMessage());
         }
     }
 
