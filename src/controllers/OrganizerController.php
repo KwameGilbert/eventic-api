@@ -1826,22 +1826,10 @@ class OrganizerController
                 
                 // Sum gross, admin and organizer amounts directly
                 $grossRevenue = (float) $votes->sum('gross_amount');
-                $platformFee = (float) $votes->sum('admin_amount');
-                $netRevenue = (float) $votes->sum('organizer_amount');
-
-                // Legacy fallback if share data is missing
-                if ($grossRevenue == 0 && $totalVotes > 0) {
-                    foreach ($award->categories as $category) {
-                        $categoryVotes = AwardVote::where('category_id', $category->id)
-                            ->where('status', 'paid')
-                            ->sum('number_of_votes');
-                        
-                        $categoryRevenue = $categoryVotes * ($category->cost_per_vote ?? 5);
-                        $grossRevenue += $categoryRevenue;
-                    }
-                    $platformFee = $grossRevenue * 0.05; // 5% fallback
-                    $netRevenue = $grossRevenue - $platformFee;
-                }
+                $netAdminEarnings = (float) $votes->sum('admin_amount');
+                $organizerShare = (float) $votes->sum('organizer_amount');
+                $totalFees = (float) $votes->sum('payment_fee');
+                $grossAdminEarnings = $netAdminEarnings + $totalFees;
 
                 $categoryBreakdown = [];
                 foreach ($award->categories as $category) {
@@ -1850,10 +1838,6 @@ class OrganizerController
                         ->get();
                     
                     $catGross = (float) $catVotes->sum('gross_amount');
-                    // Cat legacy fallback
-                    if ($catGross == 0 && $catVotes->count() > 0) {
-                        $catGross = $catVotes->sum('number_of_votes') * ($category->cost_per_vote ?? 5);
-                    }
 
                     if ($catVotes->count() > 0) {
                         $categoryBreakdown[] = [
@@ -1876,8 +1860,9 @@ class OrganizerController
                     'total_voters' => $totalVoters,
                     'average_cost_per_vote' => $totalVotes > 0 ? round($grossRevenue / $totalVotes, 2) : 0,
                     'gross_revenue' => round($grossRevenue, 2),
-                    'platform_fee' => round($platformFee, 2),
-                    'net_revenue' => round($netRevenue, 2),
+                    'gross_admin_earnings' => round($grossAdminEarnings, 2),
+                    'net_admin_earnings' => round($netAdminEarnings, 2),
+                    'organizer_share' => round($organizerShare, 2),
                     'payout_status' => 'pending', // TODO: Check from payouts table
                     'payout_id' => null,
                     'payout_date' => null,
@@ -1887,8 +1872,9 @@ class OrganizerController
 
                 $totals['total_votes'] += $totalVotes;
                 $totals['total_gross'] += $grossRevenue;
-                $totals['total_fees'] += $platformFee;
-                $totals['total_net'] += $netRevenue;
+                $totals['total_gross_admin'] = ($totals['total_gross_admin'] ?? 0) + $grossAdminEarnings;
+                $totals['total_net_admin'] = ($totals['total_net_admin'] ?? 0) + $netAdminEarnings;
+                $totals['total_organizer'] = ($totals['total_organizer'] ?? 0) + $organizerShare;
             }
 
             $data = [
@@ -1896,8 +1882,9 @@ class OrganizerController
                 'totals' => [
                     'total_votes' => $totals['total_votes'],
                     'total_gross' => round($totals['total_gross'], 2),
-                    'total_fees' => round($totals['total_fees'], 2),
-                    'total_net' => round($totals['total_net'], 2),
+                    'total_gross_admin_earnings' => round($totals['total_gross_admin'] ?? 0, 2),
+                    'total_net_admin_earnings' => round($totals['total_net_admin'] ?? 0, 2),
+                    'total_organizer_share' => round($totals['total_organizer'] ?? 0, 2),
                 ],
             ];
 

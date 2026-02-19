@@ -402,7 +402,7 @@ class Award extends Model
         // Eager load ALL vote counts for the award in ONE query to avoid N+1 in maps
         $voteStats = $this->votes()
             ->where('status', 'paid')
-            ->selectRaw('category_id, nominee_id, SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings')
+            ->selectRaw('category_id, nominee_id, SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings, SUM(payment_fee) as total_fees')
             ->groupBy('category_id', 'nominee_id')
             ->get();
             
@@ -414,10 +414,13 @@ class Award extends Model
         $categoryRevenueMap = [];
         $categoryAdminMap = [];
         $categoryOrganizerMap = [];
+        $categoryFeesMap = [];
+        $nomineeFeesMap = [];
         $awardTotalVotes = 0;
         $awardTotalRevenue = 0;
         $awardTotalAdmin = 0;
         $awardTotalOrganizer = 0;
+        $awardTotalFees = 0;
         
         foreach ($voteStats as $stat) {
             $nomineeVotesMap[$stat->nominee_id] = (int) $stat->total_votes;
@@ -429,11 +432,15 @@ class Award extends Model
             $categoryRevenueMap[$stat->category_id] = ($categoryRevenueMap[$stat->category_id] ?? 0) + (float) $stat->total_revenue;
             $categoryAdminMap[$stat->category_id] = ($categoryAdminMap[$stat->category_id] ?? 0) + (float) $stat->admin_earnings;
             $categoryOrganizerMap[$stat->category_id] = ($categoryOrganizerMap[$stat->category_id] ?? 0) + (float) $stat->organizer_earnings;
+            $categoryFeesMap[$stat->category_id] = ($categoryFeesMap[$stat->category_id] ?? 0) + (float) $stat->total_fees;
+            
+            $nomineeFeesMap[$stat->nominee_id] = (float) $stat->total_fees;
             
             $awardTotalVotes += (int) $stat->total_votes;
             $awardTotalRevenue += (float) $stat->total_revenue;
             $awardTotalAdmin += (float) $stat->admin_earnings;
             $awardTotalOrganizer += (float) $stat->organizer_earnings;
+            $awardTotalFees += (float) $stat->total_fees;
         }
 
         // Check if user is organizer or admin
@@ -468,7 +475,7 @@ class Award extends Model
             'views' => $this->views,
             'voting_status' => $this->voting_status,
 
-            'categories' => $this->categories->map(function ($category) use ($isOrganizerOrAdmin, $nomineeVotesMap, $nomineeRevenueMap, $categoryVotesMap, $categoryRevenueMap) {
+            'categories' => $this->categories->map(function ($category) use ($isOrganizerOrAdmin, $nomineeVotesMap, $nomineeRevenueMap, $nomineeAdminMap, $nomineeOrganizerMap, $nomineeFeesMap, $categoryVotesMap, $categoryRevenueMap, $categoryAdminMap, $categoryOrganizerMap, $categoryFeesMap) {
                 $categoryData = [
                     'id' => $category->id,
                     'name' => $category->name,
@@ -487,12 +494,13 @@ class Award extends Model
                 if ($isOrganizerOrAdmin) {
                     $categoryData['total_votes'] = $categoryVotesMap[$category->id] ?? 0;
                     $categoryData['revenue'] = (float) ($categoryRevenueMap[$category->id] ?? 0);
-                    $categoryData['admin_earnings'] = (float) ($categoryAdminMap[$category->id] ?? 0);
-                    $categoryData['organizer_earnings'] = (float) ($categoryOrganizerMap[$category->id] ?? 0);
+                    $categoryData['net_admin_earnings'] = (float) ($categoryAdminMap[$category->id] ?? 0);
+                    $categoryData['gross_admin_earnings'] = (float) (($categoryAdminMap[$category->id] ?? 0) + ($categoryFeesMap[$category->id] ?? 0));
+                    $categoryData['organizer_share'] = (float) ($categoryOrganizerMap[$category->id] ?? 0);
                     $categoryData['internal_voting_status'] = $category->voting_status;
                 }
 
-                $categoryData['nominees'] = $category->nominees->map(function ($nominee) use ($isOrganizerOrAdmin, $nomineeVotesMap, $nomineeRevenueMap) {
+                $categoryData['nominees'] = $category->nominees->map(function ($nominee) use ($isOrganizerOrAdmin, $nomineeVotesMap, $nomineeRevenueMap, $nomineeAdminMap, $nomineeOrganizerMap, $nomineeFeesMap) {
                     $nomineeData = [
                         'id' => $nominee->id,
                         'nominee_code' => $nominee->nominee_code,
@@ -507,8 +515,9 @@ class Award extends Model
                         $nomineeData['total_votes'] = $nomineeVotesMap[$nominee->id] ?? 0;
                         if ($isOrganizerOrAdmin) {
                             $nomineeData['revenue'] = $nomineeRevenueMap[$nominee->id] ?? 0;
-                            $nomineeData['admin_earnings'] = $nomineeAdminMap[$nominee->id] ?? 0;
-                            $nomineeData['organizer_earnings'] = $nomineeOrganizerMap[$nominee->id] ?? 0;
+                            $nomineeData['net_admin_earnings'] = $nomineeAdminMap[$nominee->id] ?? 0;
+                            $nomineeData['gross_admin_earnings'] = ($nomineeAdminMap[$nominee->id] ?? 0) + ($nomineeFeesMap[$nominee->id] ?? 0);
+                            $nomineeData['organizer_share'] = $nomineeOrganizerMap[$nominee->id] ?? 0;
                         }
                     }
                     
@@ -560,8 +569,12 @@ class Award extends Model
                 'total_nominees' => $this->nominees->count(),
                 'total_votes' => $awardTotalVotes,
                 'revenue' => $awardTotalRevenue,
-                'admin_earnings' => $awardTotalAdmin,
+                'net_admin_earnings' => $awardTotalAdmin,
+                'gross_admin_earnings' => $awardTotalAdmin + $awardTotalFees,
+                'admin_share_percent' => $this->getAdminSharePercent(),
+                'total_fees' => $awardTotalFees,
                 'organizer_earnings' => $awardTotalOrganizer,
+                'views' => $this->views,
                 'unique_voters' => $this->getUniqueVotersCount(),
             ];
         }

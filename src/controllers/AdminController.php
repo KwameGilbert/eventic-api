@@ -1077,33 +1077,67 @@ class AdminController
             // Sum gross amount and admin share directly from votes table instead of calculating on the fly
             $voteStats = AwardVote::where('award_id', $awardId)
                 ->where('status', 'paid')
-                ->selectRaw('SUM(gross_amount) as total_revenue, SUM(admin_amount) as total_admin_earnings, SUM(organizer_amount) as total_organizer_earnings')
+                ->selectRaw('SUM(gross_amount) as total_revenue, SUM(admin_amount) as total_admin_earnings, SUM(organizer_amount) as total_organizer_earnings, SUM(payment_fee) as total_fees')
                 ->first();
 
             $totalRevenue = (float) ($voteStats->total_revenue ?? 0);
             $totalAdminEarnings = (float) ($voteStats->total_admin_earnings ?? 0);
             $totalOrganizerEarnings = (float) ($voteStats->total_organizer_earnings ?? 0);
+            $totalFees = (float) ($voteStats->total_fees ?? 0);
 
             // Build categories with nominees and vote counts
             $categoriesData = [];
             $totalNominees = 0;
             
-            foreach ($award->categories as $category) {
-                $categoryStats = AwardVote::where('category_id', $category->id)
-                    ->where('status', 'paid')
-                    ->selectRaw('SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings')
-                    ->first();
+            // Pre-fetch all relevant vote stats for categories and nominees to avoid N+1 queries
+            $allVoteStats = AwardVote::where('award_id', $awardId)
+                ->where('status', 'paid')
+                ->selectRaw('category_id, nominee_id, SUM(number_of_votes) as total_votes, SUM(gross_amount) as total_revenue, SUM(admin_amount) as admin_earnings, SUM(organizer_amount) as organizer_earnings, SUM(payment_fee) as total_fees')
+                ->groupBy('category_id', 'nominee_id')
+                ->get();
+
+            // Build category and nominee maps for efficient data retrieval
+            $nomineeVotesMap = [];
+            $nomineeRevenueMap = [];
+            $nomineeAdminMap = [];
+            $nomineeOrganizerMap = [];
+            $nomineeFeesMap = [];
+
+            $categoryVotesMap = [];
+            $categoryRevenueMap = [];
+            $categoryAdminMap = [];
+            $categoryOrganizerMap = [];
+            $categoryFeesMap = [];
+            
+            foreach ($allVoteStats as $stat) {
+                $votes = (int) $stat->total_votes;
+                $rev = (float) $stat->total_revenue;
+                $admin = (float) $stat->admin_earnings;
+                $org = (float) $stat->organizer_earnings;
+                $fees = (float) $stat->total_fees;
+
+                $nomineeVotesMap[$stat->nominee_id] = $votes;
+                $nomineeRevenueMap[$stat->nominee_id] = $rev;
+                $nomineeAdminMap[$stat->nominee_id] = $admin;
+                $nomineeOrganizerMap[$stat->nominee_id] = $org;
+                $nomineeFeesMap[$stat->nominee_id] = $fees;
                 
-                $categoryVotes = (int) ($categoryStats->total_votes ?? 0);
-                $categoryRevenue = (float) ($categoryStats->total_revenue ?? 0);
-                $categoryAdminEarnings = (float) ($categoryStats->admin_earnings ?? 0);
-                $categoryOrganizerEarnings = (float) ($categoryStats->organizer_earnings ?? 0);
+                $categoryVotesMap[$stat->category_id] = ($categoryVotesMap[$stat->category_id] ?? 0) + $votes;
+                $categoryRevenueMap[$stat->category_id] = ($categoryRevenueMap[$stat->category_id] ?? 0) + $rev;
+                $categoryAdminMap[$stat->category_id] = ($categoryAdminMap[$stat->category_id] ?? 0) + $admin;
+                $categoryOrganizerMap[$stat->category_id] = ($categoryOrganizerMap[$stat->category_id] ?? 0) + $org;
+                $categoryFeesMap[$stat->category_id] = ($categoryFeesMap[$stat->category_id] ?? 0) + $fees;
+            }
+            
+            foreach ($award->categories as $category) {
+                $categoryVotes = $categoryVotesMap[$category->id] ?? 0;
+                $categoryRevenue = $categoryRevenueMap[$category->id] ?? 0;
+                $categoryAdminEarnings = $categoryAdminMap[$category->id] ?? 0;
+                $categoryOrganizerEarnings = $categoryOrganizerMap[$category->id] ?? 0;
                 
                 $nomineesData = [];
                 foreach ($category->nominees as $nominee) {
-                    $nomineeVotes = AwardVote::where('nominee_id', $nominee->id)
-                        ->where('status', 'paid')
-                        ->sum('number_of_votes');
+                    $nomineeVotes = $nomineeVotesMap[$nominee->id] ?? 0;
                     
                     $nomineesData[] = [
                         'id' => $nominee->id,
@@ -1125,8 +1159,9 @@ class AdminController
                     'voting_status' => $category->voting_status,
                     'total_votes' => $categoryVotes,
                     'total_revenue' => round($categoryRevenue, 2),
-                    'admin_earnings' => round($categoryAdminEarnings, 2),
-                    'organizer_earnings' => round($categoryOrganizerEarnings, 2),
+                    'gross_admin_earnings' => round($categoryAdminEarnings + ($categoryFeesMap[$category->id] ?? 0), 2),
+                    'net_admin_earnings' => round($categoryAdminEarnings, 2),
+                    'organizer_share' => round($categoryOrganizerEarnings, 2),
                     'nominees' => $nomineesData,
                     'display_order' => $category->display_order,
                 ];
@@ -1153,6 +1188,7 @@ class AdminController
                 'status' => $award->status,
                 'voting_status' => $award->voting_status,
                 'award_code' => $award->award_code,
+                'views' => $award->views,
                 'is_featured' => (bool) $award->is_featured,
                 'show_results' => (bool) $award->show_results,
                 'website' => $award->website,
@@ -1166,8 +1202,21 @@ class AdminController
                 'nominees_count' => $totalNominees,
                 'total_votes' => $totalVotes,
                 'total_revenue' => round($totalRevenue, 2),
-                'total_admin_earnings' => round($totalAdminEarnings, 2),
+                'gross_admin_earnings' => round($totalAdminEarnings + $totalFees, 2),
+                'net_admin_earnings' => round($totalAdminEarnings, 2),
                 'total_organizer_earnings' => round($totalOrganizerEarnings, 2),
+                'total_fees' => round($totalFees, 2),
+                'stats' => [
+                    'revenue' => round($totalRevenue, 2),
+                    'gross_admin_earnings' => round($totalAdminEarnings + $totalFees, 2),
+                    'net_admin_earnings' => round($totalAdminEarnings, 2),
+                    'organizer_earnings' => round($totalOrganizerEarnings, 2),
+                    'total_fees' => round($totalFees, 2),
+                    'total_votes' => $totalVotes,
+                    'total_categories' => $award->categories->count(),
+                    'total_nominees' => $totalNominees,
+                    'admin_share_percent' => (float) ($award->admin_share_percent ?? 5.0),
+                ],
                 'categories' => $categoriesData,
                 'transactions' => AwardVote::with(['nominee', 'category'])
                     ->where('award_id', $awardId)
