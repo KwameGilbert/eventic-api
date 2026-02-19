@@ -12,6 +12,7 @@ use App\Services\AuthService;
 use App\Services\PasswordResetService;
 use App\Services\VerificationService;
 use App\Controllers\AuthController;
+use App\Controllers\AdminController;
 use App\Controllers\UserController;
 use App\Controllers\OrganizerController;
 use App\Controllers\PasswordResetController;
@@ -27,6 +28,7 @@ use App\Controllers\AwardController;
 use App\Controllers\AwardCategoryController;
 use App\Controllers\AwardNomineeController;
 use App\Controllers\AwardVoteController;
+use App\Controllers\SearchController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
 use App\Middleware\JsonBodyParserMiddleware;
@@ -120,10 +122,8 @@ return function ($container) {
         return new TicketTypeController();
     });
 
-   $container->set(OrderController::class, function ($container) {
-        return new OrderController(
-            $container->get(\App\Services\NotificationService::class)
-        );
+    $container->set(OrderController::class, function () {
+        return new OrderController();
     });
 
     $container->set(TicketController::class, function () {
@@ -138,10 +138,8 @@ return function ($container) {
         return new PosController();
     });
 
-    $container->set(AwardController::class, function ($container) {
-        return new AwardController(
-            $container->get(\App\Services\UploadService::class)
-        );
+    $container->set(AwardController::class, function () {
+        return new AwardController();
     });
 
     $container->set(AwardCategoryController::class, function () {
@@ -156,6 +154,10 @@ return function ($container) {
 
     $container->set(AwardVoteController::class, function () {
         return new AwardVoteController();
+    });
+
+    $container->set(SearchController::class, function () {
+        return new SearchController();
     });
 
     $container->set(AdminController::class, function ($container) {
