@@ -116,7 +116,7 @@ class PlatformSetting extends Model
      */
     public static function getPayoutHoldDays(): int
     {
-        return (int) self::get('payout_hold_days', 7);
+        return (int) self::get('payout_hold_days', 1);
     }
 
     /**

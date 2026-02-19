@@ -480,6 +480,7 @@ class PayoutController
                             'id' => $payout->organizer->id,
                             'name' => $payout->organizer->organization_name,
                             'email' => $payout->organizer->user->email ?? null,
+                            'phone' => $payout->organizer->phone_number,
                         ] : null,
                         'source_name' => $payout->getSourceName(),
                         'payout_type' => $payout->payout_type,
@@ -490,7 +491,7 @@ class PayoutController
                         'bank_name' => $payout->bank_name,
                         'status' => $payout->status,
                         'status_label' => $payout->getStatusLabel(),
-                        'processed_by' => $payout->processor?->name,
+                        'processed_by' => $payout->processor ? $payout->processor->name : null,
                         'processed_at' => $payout->processed_at?->toIso8601String(),
                         'rejection_reason' => $payout->rejection_reason,
                         'notes' => $payout->notes,
@@ -503,6 +504,69 @@ class PayoutController
             return ResponseHelper::success($response, 'Payouts fetched successfully', $data);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch payouts', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get single payout request details (admin only)
+     * GET /v1/admin/payouts/{payoutId}
+     */
+    public function getPayout(Request $request, Response $response, array $args): Response
+    {
+        // Verify admin role
+        $authResult = $this->verifyAdminRole($request, $response);
+        if ($authResult) {
+            return $authResult;
+        }
+
+        try {
+            $payoutId = (int) $args['payoutId'];
+            $payout = PayoutRequest::with(['organizer.user', 'event', 'award', 'processor'])->find($payoutId);
+
+            if (!$payout) {
+                return ResponseHelper::error($response, 'Payout request not found', 404);
+            }
+
+            $data = [
+                'payout' => [
+                    'id' => $payout->id,
+                    'organizer' => $payout->organizer ? [
+                        'id' => $payout->organizer->id,
+                        'name' => $payout->organizer->organization_name,
+                        'email' => $payout->organizer->user->email ?? null,
+                        'phone' => $payout->organizer->phone_number,
+                    ] : null,
+                    'source' => $payout->event ? [
+                        'id' => $payout->event->id,
+                        'title' => $payout->event->title,
+                        'type' => 'event',
+                    ] : ($payout->award ? [
+                        'id' => $payout->award->id,
+                        'title' => $payout->award->title,
+                        'type' => 'award',
+                    ] : null),
+                    'source_name' => $payout->getSourceName(),
+                    'payout_type' => $payout->payout_type,
+                    'amount' => (float) $payout->amount,
+                    'gross_amount' => (float) $payout->gross_amount,
+                    'admin_fee' => (float) $payout->admin_fee,
+                    'payment_method' => $payout->getPaymentMethodLabel(),
+                    'status' => $payout->status,
+                    'status_label' => $payout->getStatusLabel(),
+                    'account_number' => $payout->account_number,
+                    'account_name' => $payout->account_name,
+                    'bank_name' => $payout->bank_name,
+                    'processed_by' => $payout->processor ? $payout->processor->name : null,
+                    'processed_at' => $payout->processed_at?->toIso8601String(),
+                    'rejection_reason' => $payout->rejection_reason,
+                    'notes' => $payout->notes,
+                    'created_at' => $payout->created_at->toIso8601String(),
+                ]
+            ];
+
+            return ResponseHelper::success($response, 'Payout details fetched successfully', $data);
+        } catch (Exception $e) {
+            return ResponseHelper::error($response, 'Failed to fetch payout details', 500, $e->getMessage());
         }
     }
 

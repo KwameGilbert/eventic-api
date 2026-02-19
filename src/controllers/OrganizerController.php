@@ -12,7 +12,10 @@ use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\User;
 use App\Models\Award;
+use App\Models\Transaction;
+use App\Models\PlatformSetting;
 use App\Models\AwardVote;
+use App\Models\PayoutRequest;
 use App\Models\OrganizerBalance;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -1638,8 +1641,10 @@ class OrganizerController
             // Calculate available balance (events/awards completed > 7 days ago)
             $availableBalance = $this->calculateAvailableBalance($organizer->id);
 
-            // Get completed payouts (would come from payouts table - placeholder for now)
-            $completedPayouts = 0; // TODO: Sum from payouts table when implemented
+            // Get completed payouts
+            $completedPayouts = PayoutRequest::where('organizer_id', $organizer->id)
+                ->where('status', PayoutRequest::STATUS_COMPLETED)
+                ->sum('amount');
 
             // Calculate pending balance
             $pendingBalance = $totalNetRevenue - $availableBalance - $completedPayouts;
@@ -1764,6 +1769,13 @@ class OrganizerController
                     $netRevenue = $grossRevenue - $platformFee;
                 }
 
+                // Calculate how much has already been requested/paid for this event
+                $alreadyPaidOut = PayoutRequest::where('event_id', $event->id)
+                    ->whereIn('status', [PayoutRequest::STATUS_PENDING, PayoutRequest::STATUS_PROCESSING, PayoutRequest::STATUS_COMPLETED])
+                    ->sum('amount');
+
+                $withdrawableRevenue = max(0, $netRevenue - (float) $alreadyPaidOut);
+
                 $eventsData[] = [
                     'event_id' => $event->id,
                     'event_name' => $event->title,
@@ -1774,11 +1786,11 @@ class OrganizerController
                     'tickets_sold' => $ticketsSold,
                     'gross_revenue' => round($grossRevenue, 2),
                     'platform_fee' => round($platformFee, 2),
-                    'net_revenue' => round($netRevenue, 2),
-                    'payout_status' => 'pending', // TODO: Check from payouts table
-                    'payout_id' => null,
-                    'payout_date' => null,
-                    'is_eligible_for_payout' => $this->isEligibleForPayout($event),
+                    'net_revenue' => round($withdrawableRevenue, 2),
+                    'total_net_earned' => round($netRevenue, 2),
+                    'already_paid_out' => round((float) $alreadyPaidOut, 2),
+                    'payout_status' => $alreadyPaidOut > 0 ? ($withdrawableRevenue <= 0 ? 'completed' : 'processing') : 'pending',
+                    'is_eligible_for_payout' => $this->isEligibleForPayout($event) && $withdrawableRevenue > 0,
                 ];
 
                 $totals['total_gross'] += $grossRevenue;
@@ -1821,7 +1833,13 @@ class OrganizerController
                 ->get();
 
             $awardsData = [];
-            $totals = ['total_votes' => 0, 'total_gross' => 0, 'total_fees' => 0, 'total_net' => 0];
+            $totals = [
+                'total_votes' => 0, 
+                'total_gross' => 0, 
+                'total_gross_admin' => 0, 
+                'total_net_admin' => 0, 
+                'total_organizer' => 0
+            ];
 
             foreach ($awards as $award) {
                 $votes = AwardVote::where('award_id', $award->id)
@@ -1856,6 +1874,13 @@ class OrganizerController
 
                 $totalVoters = $votes->unique('voter_email')->count();
 
+                // Calculate how much has already been requested/paid for this award
+                $alreadyPaidOut = PayoutRequest::where('award_id', $award->id)
+                    ->whereIn('status', [PayoutRequest::STATUS_PENDING, PayoutRequest::STATUS_PROCESSING, PayoutRequest::STATUS_COMPLETED])
+                    ->sum('amount');
+
+                $withdrawableRevenue = max(0, $organizerShare - (float) $alreadyPaidOut);
+
                 $awardsData[] = [
                     'award_id' => $award->id,
                     'award_title' => $award->title,
@@ -1866,14 +1891,16 @@ class OrganizerController
                     'total_voters' => $totalVoters,
                     'average_cost_per_vote' => $totalVotes > 0 ? round($grossRevenue / $totalVotes, 2) : 0,
                     'gross_revenue' => round($grossRevenue, 2),
+                    'platform_fee' => round($grossRevenue - $organizerShare, 2),
                     'gross_admin_earnings' => round($grossAdminEarnings, 2),
                     'net_admin_earnings' => round($netAdminEarnings, 2),
+                    'net_revenue' => round($withdrawableRevenue, 2), // Matching frontend expectation
                     'organizer_share' => round($organizerShare, 2),
-                    'payout_status' => 'pending', // TODO: Check from payouts table
-                    'payout_id' => null,
-                    'payout_date' => null,
+                    'total_net_earned' => round($organizerShare, 2),
+                    'already_paid_out' => round((float) $alreadyPaidOut, 2),
+                    'payout_status' => $alreadyPaidOut > 0 ? ($withdrawableRevenue <= 0 ? 'completed' : 'processing') : 'pending',
                     'breakdown_by_category' => $categoryBreakdown,
-                    'is_eligible_for_payout' => $this->isAwardEligibleForPayout($award),
+                    'is_eligible_for_payout' => $this->isAwardEligibleForPayout($award) && $withdrawableRevenue > 0,
                 ];
 
                 $totals['total_votes'] += $totalVotes;
@@ -1970,14 +1997,18 @@ class OrganizerController
         }
 
         // Legacy calculation for backwards compatibility
-        $sevenDaysAgo = Carbon::now()->subDays(7);
+        $holdDays = PlatformSetting::getPayoutHoldDays();
+        $holdDate = Carbon::now()->subDays($holdDays);
         $availableBalance = 0;
 
-        // Events completed > 7 days ago
+        // Events with matured transactions
         $eligibleEvents = Event::where('organizer_id', $organizerId)
-            ->where(function ($query) use ($sevenDaysAgo) {
-                $query->where('end_time', '<', $sevenDaysAgo)
-                    ->orWhere('status', 'completed');
+            ->where(function ($query) use ($holdDate) {
+                $query->where('status', 'completed')
+                    ->orWhereHas('transactions', function($q) use ($holdDate) {
+                        $q->where('status', Transaction::STATUS_COMPLETED)
+                          ->where('created_at', '<', $holdDate);
+                    });
             })
             ->get();
 
@@ -1997,11 +2028,14 @@ class OrganizerController
             $availableBalance += $net;
         }
 
-        // Awards with voting ended > 7 days ago
+        // Awards with matured transactions
         $eligibleAwards = Award::where('organizer_id', $organizerId)
-            ->where(function ($query) use ($sevenDaysAgo) {
-                $query->where('voting_end', '<', $sevenDaysAgo)
-                    ->orWhere('status', 'completed');
+            ->where(function ($query) use ($holdDate) {
+                $query->where('status', 'completed')
+                    ->orWhereHas('transactions', function($q) use ($holdDate) {
+                        $q->where('status', Transaction::STATUS_COMPLETED)
+                          ->where('created_at', '<', $holdDate);
+                    });
             })
             ->get();
 
@@ -2064,34 +2098,34 @@ class OrganizerController
 
     private function isEligibleForPayout($event): bool
     {
-        // Event must be completed or ended > 7 days ago
-        $sevenDaysAgo = Carbon::now()->subDays(7);
-        
+        // Event is eligible if completed or has matured transactions
         if ($event->status === 'completed') {
             return true;
         }
-        
-        if ($event->end_time && $event->end_time < $sevenDaysAgo) {
-            return true;
-        }
 
-        return false;
+        $holdDays = PlatformSetting::getPayoutHoldDays();
+        $holdDate = Carbon::now()->subDays($holdDays);
+        
+        return Transaction::where('event_id', $event->id)
+            ->where('status', Transaction::STATUS_COMPLETED)
+            ->where('created_at', '<', $holdDate)
+            ->exists();
     }
 
     private function isAwardEligibleForPayout($award): bool
     {
-        // Award voting must have ended > 7 days ago
-        $sevenDaysAgo = Carbon::now()->subDays(7);
-        
+        // Award is eligible if completed or has matured transactions
         if ($award->status === 'completed') {
             return true;
         }
-        
-        if ($award->voting_end && $award->voting_end < $sevenDaysAgo) {
-            return true;
-        }
 
-        return false;
+        $holdDays = PlatformSetting::getPayoutHoldDays();
+        $holdDate = Carbon::now()->subDays($holdDays);
+        
+        return Transaction::where('award_id', $award->id)
+            ->where('status', Transaction::STATUS_COMPLETED)
+            ->where('created_at', '<', $holdDate)
+            ->exists();
     }
 
     /**

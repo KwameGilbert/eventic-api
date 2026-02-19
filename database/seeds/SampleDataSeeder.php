@@ -835,12 +835,6 @@ class SampleDataSeeder extends AbstractSeed
 
     private function seedSampleVotes(): void
     {
-        $existing = $this->fetchRow('SELECT id FROM award_votes LIMIT 1');
-        if ($existing) {
-            echo "Sample votes already exist. Skipping...\n";
-            return;
-        }
-
         // Get some nominees
         $nominees = $this->fetchAll('SELECT id, nominee_code, category_id, award_id FROM award_nominees LIMIT 10');
         if (empty($nominees)) {
@@ -848,7 +842,15 @@ class SampleDataSeeder extends AbstractSeed
             return;
         }
 
+        // Get award to organizer mapping
+        $awardMapping = [];
+        $awards = $this->fetchAll('SELECT id, organizer_id, title FROM awards');
+        foreach ($awards as $award) {
+            $awardMapping[$award['id']] = $award;
+        }
+
         $votes = [];
+        $transactions = [];
         $phones = ['+233541111111', '+233542222222', '+233543333333', '+233544444444', '+233545555555'];
 
         foreach ($nominees as $index => $nominee) {
@@ -862,6 +864,8 @@ class SampleDataSeeder extends AbstractSeed
                 $adminPercent = 15.00;
                 $adminAmount = $grossAmount * ($adminPercent / 100);
                 $organizerAmount = $grossAmount - $adminAmount;
+                $createdAt = date('Y-m-d H:i:s', strtotime("-" . random_int(1, 60) . " days"));
+                $reference = 'SEED_' . strtoupper(uniqid()) . '_' . $index . '_' . $i;
 
                 $votes[] = [
                     'nominee_id' => $nominee['id'],
@@ -876,17 +880,41 @@ class SampleDataSeeder extends AbstractSeed
                     'organizer_amount' => $organizerAmount,
                     'payment_fee' => $grossAmount * 0.0195, 
                     'status' => 'paid',
-                    'reference' => 'SEED_' . strtoupper(uniqid()) . '_' . $index . '_' . $i,
+                    'reference' => $reference,
                     'voter_phone' => $phones[array_rand($phones)],
-                    'created_at' => date('Y-m-d H:i:s', strtotime("-" . random_int(1, 60) . " days")),
+                    'created_at' => $createdAt,
                     'updated_at' => date('Y-m-d H:i:s'),
                 ];
+
+                // Create transaction for this vote
+                $award = $awardMapping[$nominee['award_id']] ?? null;
+                if ($award) {
+                    $transactions[] = [
+                        'reference' => 'TXN_' . $reference,
+                        'transaction_type' => 'vote_purchase',
+                        'organizer_id' => $award['organizer_id'],
+                        'award_id' => $nominee['award_id'],
+                        'gross_amount' => $grossAmount,
+                        'admin_amount' => $adminAmount,
+                        'organizer_amount' => $organizerAmount,
+                        'payment_fee' => $grossAmount * 0.0195,
+                        'status' => 'completed',
+                        'description' => "Vote purchase: " . ($award['title'] ?? 'Award'),
+                        'created_at' => $createdAt,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ];
+                }
             }
         }
 
         if (!empty($votes)) {
             $this->table('award_votes')->insert($votes)->save();
+            echo "✅ Sample votes seeded\n";
         }
-        echo "✅ Sample votes seeded\n";
+
+        if (!empty($transactions)) {
+            $this->table('transactions')->insert($transactions)->save();
+            echo "✅ Matching transactions seeded\n";
+        }
     }
 }

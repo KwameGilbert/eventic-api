@@ -7,6 +7,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use App\Models\Organizer;
+use App\Models\Event;
+use App\Models\Award;
+use App\Models\User;
+use App\Models\OrganizerBalance;
+use App\Models\Transaction;
 
 /**
  * PayoutRequest Model

@@ -34,6 +34,7 @@ return function (App $app): void {
         // View all payouts
         $group->get('', [$payoutController, 'getAllPayouts']);
         $group->get('/summary', [$payoutController, 'getPayoutSummary']);
+        $group->get('/{payoutId}', [$payoutController, 'getPayout']);
         
         // Payout actions
         $group->post('/{payoutId}/approve', [$payoutController, 'approvePayout']);
