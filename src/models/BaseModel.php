@@ -121,6 +121,18 @@ class BaseModel extends EloquentModel
             }
         }
 
-        return $query->paginate($perPage);
+        $total = $query->count();
+        $page = (int) ($_GET['page'] ?? 1);
+        $offset = ($page - 1) * $perPage;
+
+        $items = $query->skip($offset)->take($perPage)->get();
+
+        return [
+            'items' => $items,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => ceil($total / $perPage),
+            'per_page' => $perPage,
+        ];
     }
 }

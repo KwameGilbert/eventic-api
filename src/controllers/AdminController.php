@@ -1298,8 +1298,14 @@ class AdminController
                 });
             }
 
+            $total = $query->count();
+            $page = (int) ($params['page'] ?? 1);
+            $offset = ($page - 1) * $perPage;
+
             $transactions = $query->orderBy('created_at', 'desc')
-                ->paginate($perPage);
+                ->skip($offset)
+                ->take($perPage)
+                ->get();
 
             $data = [
                 'transactions' => array_map(function ($vote) {
@@ -1323,12 +1329,12 @@ class AdminController
                         'source' => $vote->source,
                         'created_at' => $vote->created_at ? $vote->created_at->toIso8601String() : null,
                     ];
-                }, $transactions->items()),
+                }, $transactions->all()),
                 'pagination' => [
-                    'total' => $transactions->total(),
-                    'current_page' => $transactions->currentPage(),
-                    'last_page' => $transactions->lastPage(),
-                    'per_page' => $transactions->perPage(),
+                    'total' => $total,
+                    'current_page' => $page,
+                    'last_page' => ceil($total / $perPage),
+                    'per_page' => $perPage,
                 ]
             ];
 

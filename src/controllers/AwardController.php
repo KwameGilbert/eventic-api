@@ -197,8 +197,9 @@ class AwardController
             $identifier = $args['id'];
             
             // Get user info if authenticated (optional for public endpoint)
-            $userRole = $request->getAttribute('user_role');
-            $userId = $request->getAttribute('user_id');
+            $user = $request->getAttribute('user');
+            $userRole = $user ? $user->role : null;
+            $userId = $user ? $user->id : null;
 
             // Try to find by ID first, then by slug
             if (is_numeric($identifier)) {
@@ -684,8 +685,7 @@ class AwardController
     {
         try {
             $awardId = (int) $args['id'];
-            $userId = $request->getAttribute('user_id');
-            $userRole = $request->getAttribute('user_role');
+            $user = $request->getAttribute('user');
 
             // Find the award
             $award = Award::find($awardId);
@@ -693,14 +693,12 @@ class AwardController
                 return ResponseHelper::error($response, 'Award not found', 404);
             }
 
-            // Verify organizer ownership
-            if ($userRole !== 'organizer' && !in_array($userRole, ['admin', 'super_admin'])) {
-                return ResponseHelper::error($response, 'Only organizers can modify award settings', 403);
-            }
-
-            $organizer = Organizer::where('user_id', $userId)->first();
-            if (!$organizer || $award->organizer_id !== $organizer->id) {
-                return ResponseHelper::error($response, 'You do not have permission to modify this award', 403);
+            // Authorization
+            if (!in_array($user->role, ['admin', 'super_admin'])) {
+                $organizer = Organizer::where('user_id', $user->id)->first();
+                if (!$organizer || $organizer->id !== $award->organizer_id) {
+                    return ResponseHelper::error($response, 'Unauthorized: You do not have permission to modify this award', 403);
+                }
             }
 
             // Toggle the show_results flag
