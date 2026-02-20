@@ -115,6 +115,14 @@ class KowriService
      */
     public function payNow(array $data): array
     {
+        // Format phone numbers according to strict Kowri requirements
+        // walletRef (233XXXXXXXXX) vs customerMobile (0XXXXXXXXX)
+        $rawPhone = preg_replace('/[^0-9]/', '', $data['phone']);
+        $last9Digits = substr($rawPhone, -9);
+        
+        $walletRef = '233' . $last9Digits;
+        $customerMobile = '0' . $last9Digits;
+
         $payload = [
             'requestId' => uniqid('req_', true),
             'appReference' => $this->appReference,
@@ -122,8 +130,8 @@ class KowriService
             'amount' => number_format((float) $data['amount'], 2, '.', ''),
             'currency' => $data['currency'] ?? 'GHS',
             'customerName' => $data['name'] ?? 'Customer',
-            'customerMobile' => $data['phone'],
-            'walletRef' => $data['phone'],
+            'customerMobile' => $customerMobile,
+            'walletRef' => $walletRef,
             'provider' => $this->mapProvider($data['network'] ?? ''),
             'reference' => $data['order_id'],
             'transactionId' => '',
