@@ -39,6 +39,16 @@ return function ($app, $config) {
         return $response->withHeader('Content-Type', 'application/json');
     });
     
+    // ==================== USSD ROUTE ====================
+    
+    // Route USSD requests to the USSD handler
+    $app->post('/ussd', function ($request, $response) {
+        // The ussd/main.php file will handle the request
+        // We use include instead of require to allow multiple calls if needed (though rare for USSD)
+        require BASE . 'ussd/main.php';
+        return $response;
+    });
+    
     // ==================== API ROUTES ====================
     
     // Include versioned API routes

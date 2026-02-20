@@ -395,11 +395,11 @@ class Event extends Model
     {
         $adminSharePercent = $this->getAdminSharePercent();
         $organizerSharePercent = 100 - $adminSharePercent;
-        $paystackFeePercent = PlatformSetting::getPaystackFeePercent();
+        $paymentFeePercent = PlatformSetting::getPaymentFeePercent();
 
         $organizerAmount = $grossAmount * ($organizerSharePercent / 100);
         $adminGross = $grossAmount * ($adminSharePercent / 100);
-        $paymentFee = $grossAmount * ($paystackFeePercent / 100);
+        $paymentFee = $grossAmount * ($paymentFeePercent / 100);
         $adminAmount = $adminGross - $paymentFee; // Admin absorbs payment fee
 
         return [

@@ -38,13 +38,13 @@ $data = json_decode($json, true);
 $logger = new UssdLogger($data['sessionID'] ?? 'unknown');
 $logger->logRequest($data);
 
-// Extract session data
+// Extract session data (Strict Arkesel Spec)
 $sessionID = $data['sessionID'] ?? '';
 $userID = $data['userID'] ?? '';
 $newSession = $data['newSession'] ?? false;
 $msisdn = $data['msisdn'] ?? '';
 $userData = trim($data['userData'] ?? '');
-$network = strtolower($data['network'] ?? 'mtn');
+$network = $data['network'] ?? 'MTN';
 
 // Get contact info from environment
 $contactPhone = $_ENV['USSD_CONTACT_PHONE'] ?? '+233541436414';
@@ -55,12 +55,13 @@ $contactEmail = $_ENV['USSD_CONTACT_EMAIL'] ?? 'support@eventic.com';
  */
 function sendResponse(string $sessionID, string $msisdn, string $userID, bool $continueSession, string $message, UssdLogger $logger): void
 {
+    // Strict Arkesel Response Schema
     $response = [
         'sessionID' => $sessionID,
-        'msisdn' => $msisdn,
         'userID' => $userID,
-        'continueSession' => $continueSession,
+        'msisdn' => $msisdn,
         'message' => $message,
+        'continueSession' => $continueSession,
     ];
     
     $logger->logResponse($response);
@@ -69,20 +70,6 @@ function sendResponse(string $sessionID, string $msisdn, string $userID, bool $c
     header('Content-Type: application/json');
     echo json_encode($response);
     exit();
-}
-
-/**
- * Map network name to Paystack provider code
- */
-function getPaystackProvider(string $network): string
-{
-    $providers = [
-        'mtn' => 'mtn',
-        'vodafone' => 'vod',
-        'airteltigo' => 'tgo',
-        'airtel' => 'atl',
-    ];
-    return $providers[$network] ?? 'mtn';
 }
 
 // Handle new session - show main menu
@@ -238,8 +225,9 @@ switch ($level) {
         // Calculate revenue split
         $revenueSplit = $award->calculateRevenueSplit($totalCost);
         
-        // Generate payment reference
-        $reference = 'USSD_' . $sessionID . '_' . time();
+        // Generate payment reference (Shortened for provider limits)
+        $shortSession = substr(preg_replace('/[^A-Za-z0-0]/', '', $sessionID), -4);
+        $reference = 'V' . $shortSession . time(); 
         
         // Create pending vote record
         try {
@@ -269,158 +257,63 @@ switch ($level) {
             break;
         }
         
-        // Initiate ExpressPay Merchant Direct API payment
-        $merchantId = $_ENV['EXPRESSPAY_MERCHANT_ID'] ?? '';
-        $apiKey = $_ENV['EXPRESSPAY_API_KEY'] ?? '';
-        $isLive = ($_ENV['APP_ENV'] ?? 'development') === 'production';
-        
-        if (empty($merchantId) || empty($apiKey)) {
-            $logger->error('ExpressPay credentials not configured');
-            $message = "Payment system unavailable. Contact support.";
-            $continueSession = false;
-            break;
-        }
-        
-        // ============================================================
-        // STEP 1: Submit to /api/direct/submit.php to get a "direct" token
-        // ============================================================
-        $submitUrl = $isLive 
-            ? 'https://expresspaygh.com/api/direct/submit.php'
-            : 'https://sandbox.expresspaygh.com/api/direct/submit.php';
+        // Initiate payment with Kowri
+        $kowriService = new \App\Services\KowriService();
         
         $nomineeName = $lastResponse['nomineeName'] ?? 'Nominee';
-        $postUrl = ($_ENV['APP_URL'] ?? 'app.eventic.com') . '/v1/votes/ipn';
-        $phoneNumber = ltrim($msisdn, '+');
+        $webhookUrl = ($_ENV['APP_URL'] ?? 'https://app.eventic.com') . '/v1/votes/ipn';
         
-        // Submit requires all standard fields
-        $submitData = [
-            'merchant-id' => $merchantId,
-            'api-key' => $apiKey,
+        // Network mapping (KowriService handles mapping to provider)
+        $paymentData = [
+            'amount' => $totalCost,
             'currency' => 'GHS',
-            'amount' => number_format($totalCost, 2, '.', ''),
-            'order-id' => $reference,
-            'order-desc' => "{$votes} votes for {$nomineeName}",
-            'redirect-url' => $_ENV['APP_URL'] ?? 'http://app.eventic.com',
-            'post-url' => $postUrl,
-            'firstname' => 'USSD',
-            'lastname' => 'Voter',
+            'order_id' => $reference,
             'email' => "ussd_{$sessionID}@eventic.com",
-            'phonenumber' => $phoneNumber,
+            'name' => "USSD Voter",
+            'phone' => ltrim($msisdn, '+'),
+            'description' => "{$votes} votes for {$nomineeName}",
+            'network' => $network,
+            'webhook_url' => $webhookUrl
         ];
-        
-        $postFields = http_build_query($submitData);
-        
-        $ch = curl_init($submitUrl);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $postFields,
-            CURLOPT_HTTPHEADER => [
-                "Content-Type: application/x-www-form-urlencoded",
-            ],
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_TIMEOUT => 30,
-        ]);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-        
-        $logger->debug('ExpressPay Direct Submit response', [
-            'url' => $submitUrl,
-            'http_code' => $httpCode, 
-            'response' => substr($response, 0, 300),
-            'curl_error' => $curlError
-        ]);
-        
-        if ($curlError) {
-            $logger->error('ExpressPay curl error', ['error' => $curlError]);
-            $message = "Payment initiation failed. Please try again.";
-            $continueSession = false;
-            break;
-        }
-        
-        $responseData = json_decode($response, true);
-        
-        // Status: 1=Success, 2=Invalid Credentials, 3=Invalid Request, 4=Invalid IP
-        if (($responseData['status'] ?? 0) != 1 || empty($responseData['token'])) {
-            $errorMsg = $responseData['message'] ?? 'Submit failed (status: ' . ($responseData['status'] ?? 'null') . ')';
-            $logger->error('ExpressPay Direct Submit failed', ['error' => $errorMsg, 'response' => $responseData]);
-            $message = "Payment failed: {$errorMsg}";
-            $continueSession = false;
-            break;
-        }
-        
-        $token = $responseData['token'];
-        
-        // Store token in vote record for verification
-        $vote->payment_token = $token;
-        $vote->save();
-        
-        // ============================================================
-        // STEP 2: Direct MoMo charge via /api/checkout.php
-        // Token from /direct/submit.php should be recognized as direct charge
-        // ============================================================
-        $checkoutUrl = $isLive
-            ? 'https://expresspaygh.com/api/checkout.php'
-            : 'https://sandbox.expresspaygh.com/api/checkout.php';
-        
-        // Map network to ExpressPay Merchant Direct codes
-        // Supported: "MTN_MM", "AIRTEL_MM", "TIGO_CASH", "VODAFONE_CASH"
-        $networkCode = match(strtolower($network)) {
-            'mtn' => 'MTN_MM',
-            'vodafone', 'voda', 'telecel' => 'VODAFONE_CASH',
-            'airteltigo', 'airtel', 'tigo' => 'AIRTEL_MM',
-            default => 'MTN_MM'
-        };
-        
-        // Format phone number (ExpressPay expects: 233XXXXXXXXX or 0XXXXXXXXX)
-        $phoneNumber = ltrim($msisdn, '+');
-        
-        $checkoutData = [
-            'token' => $token,
-            'mobile-number' => $phoneNumber,
-            'mobile-network' => $networkCode,
-        ];
-        
-        $ch2 = curl_init($checkoutUrl);
-        curl_setopt_array($ch2, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query($checkoutData),
-            CURLOPT_HTTPHEADER => [
-                "Content-Type: application/x-www-form-urlencoded",
-            ],
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_TIMEOUT => 60,
-        ]);
-        
-        $mmResponse = curl_exec($ch2);
-        $mmError = curl_error($ch2);
-        curl_close($ch2);
-        
-        $logger->debug('ExpressPay Checkout MoMo response', ['response' => $mmResponse, 'error' => $mmError]);
-        
-        $mmResponseData = json_decode($mmResponse, true);
-        
-        // Result: 1=Approved, 2=Declined, 3=Error, 4=Pending
-        $mmResult = (int) ($mmResponseData['result'] ?? 0);
-        
-        if ($mmResult === 1 || $mmResult === 4) {
-            $statusMsg = $mmResult === 1 ? 'Payment approved!' : 'Payment initiated!';
-            $message = "{$statusMsg}\nCheck your phone for the mobile money prompt.\n{$votes} vote(s) for {$nomineeName}\nRef: " . substr($reference, -8);
-            $continueSession = false;
-            $logger->info('MoMo payment initiated successfully', [
-                'reference' => $reference, 
-                'token' => $token,
-                'result' => $mmResult,
-                'result_text' => $mmResponseData['result-text'] ?? '',
-            ]);
-        } else {
-            $errorMsg = $mmResponseData['result-text'] ?? 'Mobile money charge failed';
-            $logger->error('MoMo checkout failed', ['result' => $mmResult, 'error' => $errorMsg, 'response' => $mmResponseData]);
-            $message = "Payment failed: {$errorMsg}\nRef: " . substr($reference, -8);
+
+        try {
+            $kowriResponse = $kowriService->payNow($paymentData);
+            
+            if ($kowriResponse['success']) {
+                $token = $kowriResponse['token'];
+                
+                // Store token in vote record
+                $vote->payment_token = $token;
+                $vote->save();
+                
+                $message = "Payment initiated!\nCheck your phone for the mobile money prompt.\n{$votes} vote(s) for {$nomineeName}\nRef: " . substr($reference, -8);
+                $continueSession = false;
+                $logger->info('Kowri MoMo payment initiated successfully', [
+                    'reference' => $reference, 
+                    'token' => $token,
+                ]);
+            } else {
+                $errorMsg = $kowriResponse['message'] ?? 'Mobile money charge failed';
+                $logger->error('Kowri direct charge failed', ['response' => $kowriResponse]);
+                $message = "Payment failed: {$errorMsg}\nRef: " . substr($reference, -8);
+                $continueSession = false;
+            }
+        } catch (Exception $e) {
+            $logger->error('Kowri integration error', ['error' => $e->getMessage()]);
+            
+            // Check if it's a Kowri-specific error message we can show the user
+            $errorMsg = $e->getMessage();
+            if (strpos($errorMsg, 'Kowri PayNow Error:') !== false) {
+                $displayMsg = str_replace('Kowri PayNow Error: ', '', $errorMsg);
+                // Clean up any JSON if it was encoded
+                if (strpos($displayMsg, '{') === 0) {
+                    $jsonError = json_decode($displayMsg, true);
+                    $displayMsg = $jsonError['message'] ?? $jsonError['statusMessage'] ?? 'Payment failed';
+                }
+                $message = $displayMsg;
+            } else {
+                $message = "System error. Please try again later.";
+            }
             $continueSession = false;
         }
         break;

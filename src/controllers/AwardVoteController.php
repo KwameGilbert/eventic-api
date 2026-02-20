@@ -13,18 +13,18 @@ use App\Models\Event;
 use App\Models\Organizer;
 use App\Models\Transaction;
 use App\Models\OrganizerBalance;
-use App\Services\ExpressPayService;
+use App\Services\KowriService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Exception;
 
 class AwardVoteController
 {
-    private ExpressPayService $expressPayService;
+    private KowriService $kowriService;
 
     public function __construct()
     {
-        $this->expressPayService = new ExpressPayService();
+        $this->kowriService = new KowriService();
     }
     /**
      * Initiate a vote (create pending vote and return payment details)
@@ -96,49 +96,52 @@ class AwardVoteController
                 'voter_email' => $data['voter_email'],
                 'voter_phone' => $data['voter_phone'] ?? null,
                 'nominee_code' => $nominee->nominee_code,
-                'payment_method' => 'expresspay',
+                'payment_method' => 'kowri',
                 'source' => 'website',
             ]);
 
-            // Initiate payment with ExpressPay
-            // We need a redirect URL for ExpressPay to send the user back to
-            // This should be your frontend URL handling the payment confirmation
-            // e.g. https://your-frontend.com/payment/callback
-            // For now, we'll assume the frontend handles the redirect/token directly or we pass a placeholder
-            // that the frontend will intercept (if embedded) or a real URL.
-            // Let's use a generic formatting for now.
-            
+            // Initiate payment with Kowri
             $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
             $apiUrl = $_ENV['APP_URL'] ?? 'http://localhost:8080';
             $redirectUrl = $frontendUrl . '/payment/callback';
-            $postUrl = $apiUrl . '/v1/votes/ipn';
+            $webhookUrl = $apiUrl . '/v1/votes/ipn';
 
-            // Standard ExpressPay checkout redirect flow
+            $network = strtoupper($data['network'] ?? '');
+            $isCard = ($network === 'CARD');
+
             $paymentData = [
-                'firstname' => $data['voter_name'] ? explode(' ', $data['voter_name'])[0] : 'Guest',
-                'lastname' => $data['voter_name'] && count(explode(' ', $data['voter_name'])) > 1 ? explode(' ', $data['voter_name'])[1] : 'Voter',
                 'email' => $data['voter_email'],
-                'phonenumber' => $data['voter_phone'] ?? $data['momo_number'] ?? '0000000000',
+                'name' => $data['voter_name'] ?? 'Guest',
+                'phone' => $data['voter_phone'] ?? '0000000000',
                 'amount' => $totalAmount,
                 'order_id' => $reference,
                 'redirect_url' => $redirectUrl,
-                'post_url' => $postUrl,
+                'webhook_url' => $webhookUrl,
                 'description' => "Vote for {$nominee->name} ({$numberOfVotes} votes)",
+                'network' => $network
             ];
 
-            $expressPayResponse = $this->expressPayService->submitInvoice($paymentData);
+            if ($isCard) {
+                $kowriResponse = $this->kowriService->createInvoice($paymentData);
+                $paymentToken = $kowriResponse['pay_token'] ?? null;
+                $checkoutUrl = $kowriResponse['raw']['result']['checkoutUrl'] ?? null;
+            } else {
+                $kowriResponse = $this->kowriService->payNow($paymentData);
+                $paymentToken = $kowriResponse['token'] ?? null;
+                $checkoutUrl = null;
+            }
             
             // Save payment token
-            $vote->update(['payment_token' => $expressPayResponse['token']]);
+            $vote->update(['payment_token' => $paymentToken]);
 
             // Return payment information with checkout URL
             $voteDetails = [
                 'vote_id' => $vote->id,
                 'reference' => $reference,
-                'payment_token' => $expressPayResponse['token'],
-                'checkout_url' => $expressPayResponse['redirect_url'],
-                'payment_method' => 'checkout',
-                'is_direct' => false,
+                'payment_token' => $paymentToken,
+                'checkout_url' => $checkoutUrl,
+                'payment_method' => 'kowri',
+                'is_direct' => !$isCard,
                 'nominee' => [
                     'id' => $nominee->id,
                     'nominee_code' => $nominee->nominee_code,
@@ -158,7 +161,7 @@ class AwardVoteController
                 'total_amount' => $totalAmount,
                 'voter_email' => $data['voter_email'],
                 'voter_name' => $data['voter_name'] ?? null,
-                'status' => 'pending',
+                'status' => $kowriResponse['status'] ?? 'pending',
             ];
 
             return ResponseHelper::success($response, 'Vote initiated successfully.', $voteDetails, 201);
@@ -176,17 +179,17 @@ class AwardVoteController
         try {
             $data = $request->getParsedBody();
 
-            // We expect a token from ExpressPay redirect (or passed by frontend)
-            // Or a reference if we are looking up by our own ID (but ExpressPay query uses token)
+            // We expect a token from Kowri (passed by frontend or from redirect)
+            // Or a reference if we are looking up by our own ID (but Kowri query uses token)
             
             if (empty($data['token']) && empty($data['reference'])) {
                 return ResponseHelper::error($response, 'Payment token or reference is required', 400);
             }
 
-            // If we have a token, we query ExpressPay
+            // If we have a token, we query Kowri
             if (!empty($data['token'])) {
                 $token = $data['token'];
-                $paymentStatus = $this->expressPayService->queryTransaction($token);
+                $paymentStatus = $this->kowriService->queryTransaction($token);
                 
                 // Query returns: status = 'paid', 'pending', or 'failed'
                 if ($paymentStatus['status'] === 'pending') {
@@ -197,21 +200,6 @@ class AwardVoteController
                 }
 
                 if ($paymentStatus['status'] !== 'paid') {
-                    // Try to find the vote to return details
-                    $reference = $paymentStatus['order_id'] ?? null;
-                    if ($reference) {
-                        $vote = AwardVote::where('reference', $reference)
-                            ->with(['nominee', 'category', 'award'])
-                            ->first();
-                            
-                        if ($vote) {
-                            $voteDetails = $vote->toArray();
-                            $voteDetails['nominee'] = $vote->nominee;
-                            $voteDetails['category'] = $vote->category;
-                            $voteDetails['award'] = $vote->award;
-                            $paymentStatus['vote_details'] = $voteDetails;
-                        }
-                    }
                      return ResponseHelper::error($response, 'Payment verification failed', 400, $paymentStatus);
                 }
 
@@ -287,54 +275,62 @@ class AwardVoteController
     }
 
     /**
-     * Handle ExpressPay IPN (post-url) callback
+     * Handle Kowri Webhook (IPN) callback
      * POST /v1/votes/ipn
      * 
-     * ExpressPay Merchant Direct API Step 3:
-     * When a pending MoMo payment completes, ExpressPay POSTs to our post-url
-     * with order-id and token. We must query the transaction status (Step 4),
-     * update our state, and return HTTP 200 immediately.
+     * Kowri sends a POST request with status, orderId, and transactionId
+     * when a payment completes asynchronously.
      */
     public function handleIPN(Request $request, Response $response, array $args): Response
     {
         try {
-            $data = $request->getParsedBody();
+            $payload = $request->getParsedBody();
             
-            $orderId = $data['order-id'] ?? $data['order_id'] ?? null;
-            $token = $data['token'] ?? null;
-
-            error_log("ExpressPay IPN received: order-id={$orderId}, token={$token}");
-
-            if (empty($token)) {
-                error_log("IPN Error: No token provided");
-                $response->getBody()->write('OK');
-                return $response->withStatus(200); // Must always return 200
+            if (empty($payload)) {
+                $payload = json_decode(file_get_contents('php://input'), true);
             }
 
-            // Step 4: Query ExpressPay to verify the actual transaction status
-            $paymentStatus = $this->expressPayService->queryTransaction($token);
+            error_log("Kowri Vote IPN received: " . json_encode($payload));
 
-            error_log("IPN Query result: " . json_encode($paymentStatus));
-
-            if ($paymentStatus['status'] !== 'paid') {
-                error_log("IPN: Payment not yet confirmed. Status: {$paymentStatus['status']}");
+            if (empty($payload) || !isset($payload['status'])) {
                 $response->getBody()->write('OK');
                 return $response->withStatus(200);
             }
 
-            // Find vote by reference (order_id = our reference)
-            $reference = $paymentStatus['order_id'] ?? $orderId;
-            $vote = AwardVote::with(['category', 'award.organizer'])->where('reference', $reference)->first();
+            // Status: FULFILLED, UNFULFILLED_ERROR
+            $status = strtoupper($payload['status']);
+            $orderId = $payload['orderId'] ?? null; // This is our reference
+            $transactionId = $payload['transactionId'] ?? null;
+
+            if (!$orderId) {
+                error_log("IPN Error: Order ID missing");
+                $response->getBody()->write('OK');
+                return $response->withStatus(200);
+            }
+
+            // Find vote by reference
+            $vote = AwardVote::with(['category', 'award.organizer'])->where('reference', $orderId)->first();
 
             if (!$vote) {
-                error_log("IPN Error: Vote not found for reference: {$reference}");
+                error_log("IPN Error: Vote not found for reference: {$orderId}");
                 $response->getBody()->write('OK');
                 return $response->withStatus(200);
             }
 
             // Already paid - no action needed
             if ($vote->isPaid()) {
-                error_log("IPN: Vote already paid. Reference: {$reference}");
+                error_log("IPN: Vote already paid. Reference: {$orderId}");
+                $response->getBody()->write('OK');
+                return $response->withStatus(200);
+            }
+
+            // If FULFILLED, proceed. If UNFULFILLED_ERROR, we might mark as failed.
+            if ($status !== 'FULFILLED') {
+                error_log("IPN: Payment not successful. Status: {$status}");
+                if ($status === 'UNFULFILLED_ERROR') {
+                    $vote->status = 'failed';
+                    $vote->save();
+                }
                 $response->getBody()->write('OK');
                 return $response->withStatus(200);
             }
@@ -343,7 +339,7 @@ class AwardVoteController
             $vote->status = 'paid';
             $vote->save();
 
-            error_log("IPN: Vote confirmed. ID: {$vote->id}, Reference: {$reference}");
+            error_log("IPN: Vote confirmed. ID: {$vote->id}, Reference: {$orderId}");
 
             // Create transaction and update organizer balance
             $award = $vote->award;
@@ -371,7 +367,7 @@ class AwardVoteController
             return $response->withStatus(200);
         } catch (Exception $e) {
             error_log("IPN Exception: " . $e->getMessage());
-            // Always return 200 to ExpressPay so they don't keep retrying
+            // Always return 200 to Kowri so they don't keep retrying
             $response->getBody()->write('OK');
             return $response->withStatus(200);
         }

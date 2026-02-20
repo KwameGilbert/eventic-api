@@ -63,7 +63,7 @@ Content-Type: application/json
     "userID": "TEST_USER_001",
     "newSession": false,
     "msisdn": "{{msisdn}}",
-    "userData": "4TUH",
+    "userData": "GMA9",
     "network": "{{network}}"
 }
 
@@ -176,36 +176,6 @@ Content-Type: application/json
     "userData": "3",
     "network": "{{network}}"
 }
-
-
-### ============================================
-### WEBHOOK TEST (Simulating Paystack Callback)
-### ============================================
-### Replace the reference with actual value from Step 5 response
-
-# @name webhookSuccess
-POST {{baseUrl}}/main_process.php
-Content-Type: application/json
-
-{
-    "event": "charge.success",
-    "data": {
-        "reference": "USSD_TEST_SESSION_1234567890_1234567890",
-        "amount": 500,
-        "currency": "GHS",
-        "customer": {
-            "phone": "{{msisdn}}",
-            "email": "test@example.com"
-        },
-        "metadata": {
-            "source": "ussd"
-        }
-    }
-}
-
-### Expected Response:
-### - status: "success" (if vote found and updated)
-### - status: "not_found" (if reference doesn't match any pending vote)
 
 
 ### ============================================

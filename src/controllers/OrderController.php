@@ -20,15 +20,15 @@ use Exception;
 
 /**
  * OrderController
- * Handles order creation, payment processing, and Paystack webhook verification
+ * Handles order creation, payment processing, and Kowri webhook verification
  */
 class OrderController
 {
-    private string $paystackSecretKey;
+    private \App\Services\KowriService $kowriService;
 
     public function __construct()
     {
-        $this->paystackSecretKey = $_ENV['PAYSTACK_SECRET_KEY'] ?? '';
+        $this->kowriService = new \App\Services\KowriService();
     }
 
     /**
@@ -121,15 +121,15 @@ class OrderController
                 ];
             }
 
-            // Calculate final fees (1.5% Paystack fee)
+            // Calculate final fees (1.5% Payment fee)
             // The dynamic markup is already IN the totalAmount (subtotal)
-            $paystackFee = round($totalAmount * 0.015, 2);
-            $grandTotal = $totalAmount + $paystackFee;
+            $paymentFee = round($totalAmount * 0.015, 2);
+            $grandTotal = $totalAmount + $paymentFee;
 
-            // Subtract Paystack fee from AdminAmount for each item (pro-rata)
+            // Subtract payment fee from AdminAmount for each item (pro-rata)
             foreach ($orderItemsData as &$itemData) {
                 $itemProportion = $itemData['total_price'] / $totalAmount;
-                $itemFee = round($paystackFee * $itemProportion, 2);
+                $itemFee = round($paymentFee * $itemProportion, 2);
                 $itemData['payment_fee'] = $itemFee;
                 $itemData['admin_amount'] = round($itemData['admin_amount'] - $itemFee, 2);
             }
@@ -138,7 +138,7 @@ class OrderController
             $orderData = [
                 'user_id' => $user->id,
                 'subtotal' => $totalAmount,
-                'fees' => $paystackFee,
+                'fees' => $paymentFee,
                 'total_amount' => $grandTotal,
                 'status' => Order::STATUS_PENDING,
                 'customer_email' => $data['customer_email'] ?? $user->email,
@@ -164,15 +164,15 @@ class OrderController
 
             DB::commit();
 
-            // Generate Paystack reference
-            $paystackReference = 'EVT-' . $order->id . '-' . time();
-            $order->update(['payment_reference' => $paystackReference]);
+            // Generate unique reference
+            $reference = 'EVT-' . $order->id . '-' . time();
+            $order->update(['payment_reference' => $reference]);
 
             return ResponseHelper::success($response, 'Order created successfully. Proceed to payment.', [
                 'order_id' => $order->id,
-                'reference' => $paystackReference,
+                'reference' => $reference,
                 'subtotal' => $totalAmount,
-                'fees' => $paystackFee,
+                'fees' => $paymentFee,
                 'total_amount' => $grandTotal,
                 'status' => $order->status,
                 'is_pos' => $isPos,
@@ -186,7 +186,7 @@ class OrderController
     }
 
     /**
-     * Initialize Paystack payment
+     * Initialize Kowri payment
      * POST /v1/orders/{id}/pay
      */
     public function initializePayment(Request $request, Response $response, array $args): Response
@@ -209,55 +209,52 @@ class OrderController
                 return ResponseHelper::error($response, 'Order is already paid', 400);
             }
 
-            // Initialize Paystack payment
-            $url = "https://api.paystack.co/transaction/initialize";
-            
-            $fields = [
+            $data = $request->getParsedBody();
+            $network = strtoupper($data['network'] ?? '');
+            $isCard = ($network === 'CARD');
+
+            // Initialize Kowri payment
+            $paymentData = [
+                'amount' => $order->total_amount,
+                'order_id' => $order->payment_reference,
                 'email' => $order->customer_email,
-                'amount' => (int)($order->total_amount * 100), // Convert to kobo/pesewas
-                'reference' => $order->payment_reference,
-                'callback_url' => $_ENV['FRONTEND_URL'] . '/payment/verify?order_id=' . $order->id,
-                'metadata' => [
-                    'order_id' => $order->id,
-                    'customer_name' => $order->customer_name,
-                    'custom_fields' => [
-                        [
-                            'display_name' => 'Order ID',
-                            'variable_name' => 'order_id',
-                            'value' => (string)$order->id
-                        ]
-                    ]
-                ]
+                'name' => $order->customer_name,
+                'phone' => $data['phone'] ?? $order->customer_phone,
+                'description' => "Order #{$order->id} payment",
+                'webhook_url' => $_ENV['APP_URL'] . '/v1/payment/webhook',
+                'redirect_url' => $_ENV['FRONTEND_URL'] . '/payment/verify?order_id=' . $order->id,
+                'network' => $network
             ];
 
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($fields));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                "Authorization: Bearer " . $this->paystackSecretKey,
-                "Content-Type: application/json"
-            ]);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            
-            $result = curl_exec($ch);
-            $err = curl_error($ch);
-            curl_close($ch);
-
-            if ($err) {
-                return ResponseHelper::error($response, 'Payment initialization failed', 500);
+            if ($isCard) {
+                // Card payments MUST use checkout URL
+                $kowriResponse = $this->kowriService->createInvoice($paymentData);
+                $tokenValue = $kowriResponse['pay_token'] ?? null;
+                $checkoutUrl = $kowriResponse['raw']['result']['checkoutUrl'] ?? null;
+            } else {
+                // MoMo payments use direct prompt
+                $kowriResponse = $this->kowriService->payNow($paymentData);
+                $tokenValue = $kowriResponse['token'] ?? null;
+                $checkoutUrl = null;
             }
 
-            $paystackResponse = json_decode($result, true);
+            if (!$kowriResponse['success']) {
+                return ResponseHelper::error($response, 'Payment initialization failed', 400);
+            }
 
-            if (!$paystackResponse['status']) {
-                return ResponseHelper::error($response, $paystackResponse['message'] ?? 'Payment initialization failed', 400);
+            // Save the pay_token/transaction_id generated by Kowri
+            if ($tokenValue) {
+                $order->update(['payment_token' => $tokenValue]);
             }
 
             return ResponseHelper::success($response, 'Payment initialized', [
-                'authorization_url' => $paystackResponse['data']['authorization_url'],
-                'access_code' => $paystackResponse['data']['access_code'],
-                'reference' => $paystackResponse['data']['reference'],
+                'pay_token' => $tokenValue,
+                'reference' => $order->payment_reference,
+                'amount' => $order->total_amount,
+                'currency' => 'GHS',
+                'status' => $kowriResponse['status'] ?? 'pending',
+                'checkout_url' => $checkoutUrl,
+                'mode' => $isCard ? 'hosted' : 'direct'
             ]);
 
         } catch (Exception $e) {
@@ -266,47 +263,39 @@ class OrderController
     }
 
     /**
-     * Verify Paystack payment
+     * Verify Kowri payment
      * GET /v1/orders/{id}/verify
      */
     public function verifyPayment(Request $request, Response $response, array $args): Response
     {
         try {
             $orderId = $args['id'];
-            $queryParams = $request->getQueryParams();
-            $reference = $queryParams['reference'] ?? null;
-            
             $order = Order::find($orderId);
             
             if (!$order) {
                 return ResponseHelper::error($response, 'Order not found', 404);
             }
 
-            if (!$reference) {
-                $reference = $order->payment_reference;
+            if (empty($order->payment_token)) {
+                return ResponseHelper::error($response, 'Payment token not found for this order', 400);
             }
 
-            // Verify with Paystack
-            $paymentData = $this->verifyPaystackPayment($reference);
+            // Verify with Kowri
+            $verification = $this->kowriService->queryTransaction($order->payment_token);
 
-            if (!$paymentData) {
-                return ResponseHelper::error($response, 'Payment verification failed', 400);
-            }
-
-            if ($paymentData['status'] === 'success') {
+            if ($verification['status'] === 'paid') {
                 // Payment successful - process the order
-                $this->processSuccessfulPayment($order, $reference);
+                $this->processSuccessfulPayment($order, $order->payment_reference);
 
                 return ResponseHelper::success($response, 'Payment verified successfully', [
                     'order_id' => $order->id,
                     'status' => 'paid',
-                    'reference' => $reference,
-                    'amount_paid' => $paymentData['amount'] / 100,
+                    'amount_paid' => $verification['amount'],
                 ]);
             } else {
                 return ResponseHelper::error($response, 'Payment was not successful', 400, [
-                    'payment_status' => $paymentData['status'],
-                    'gateway_response' => $paymentData['gateway_response'] ?? null,
+                    'payment_status' => $verification['status'],
+                    'raw_status' => $verification['raw_status'],
                 ]);
             }
 
@@ -316,81 +305,51 @@ class OrderController
     }
 
     /**
-     * Paystack Webhook Handler
+     * Kowri Webhook Handler
      * POST /v1/payment/webhook
      */
-    public function paystackWebhook(Request $request, Response $response): Response
+    public function handleWebhook(Request $request, Response $response): Response
     {
         try {
-            // Verify webhook signature
-            $input = file_get_contents('php://input');
-            $signature = $request->getHeaderLine('x-paystack-signature');
+            $payload = $request->getParsedBody();
             
-            if (!$this->verifyWebhookSignature($input, $signature)) {
-                return ResponseHelper::error($response, 'Invalid signature', 401);
+            if (empty($payload)) {
+                $payload = json_decode(file_get_contents('php://input'), true);
             }
 
-            $event = json_decode($input, true);
-            
-            if (!$event || empty($event['event'])) {
-                return ResponseHelper::error($response, 'Invalid event', 400);
+            if (empty($payload) || !isset($payload['status'])) {
+                return ResponseHelper::error($response, 'Invalid payload', 400);
             }
 
-            // Handle different event types
-            switch ($event['event']) {
-                case 'charge.success':
-                    $this->handleChargeSuccess($event['data']);
-                    break;
-                    
-                case 'charge.failed':
-                    $this->handleChargeFailed($event['data']);
-                    break;
-                    
-                case 'transfer.success':
-                case 'transfer.failed':
-                    // Handle transfer events if needed for refunds
-                    break;
+            // status: FULFILLED or UNFULFILLED_ERROR
+            $status = strtoupper($payload['status']);
+            $orderId = $payload['orderId'] ?? null;
+            $transactionId = $payload['transactionId'] ?? null;
+
+            if (!$orderId) {
+                return ResponseHelper::error($response, 'Order ID missing', 400);
+            }
+
+            $order = Order::where('payment_reference', $orderId)->first();
+            
+            if (!$order) {
+                return ResponseHelper::error($response, 'Order not found', 404);
+            }
+
+            if ($status === 'FULFILLED') {
+                if ($order->status !== Order::STATUS_PAID) {
+                    $this->processSuccessfulPayment($order, $orderId);
+                }
+            } else if ($status === 'UNFULFILLED_ERROR') {
+                $this->handleChargeFailed($payload);
             }
 
             return ResponseHelper::success($response, 'Webhook processed', [], 200);
 
         } catch (Exception $e) {
-            error_log('Paystack Webhook Error: ' . $e->getMessage());
+            error_log('Kowri Webhook Error: ' . $e->getMessage());
             return ResponseHelper::error($response, 'Webhook processing failed', 500);
         }
-    }
-
-    /**
-     * Verify Paystack webhook signature
-     */
-    private function verifyWebhookSignature(string $input, string $signature): bool
-    {
-        if (empty($this->paystackSecretKey)) {
-            return false;
-        }
-
-        $expectedSignature = hash_hmac('sha512', $input, $this->paystackSecretKey);
-        return hash_equals($expectedSignature, $signature);
-    }
-
-    /**
-     * Handle successful charge event
-     */
-    private function handleChargeSuccess(array $data): void
-    {
-        $reference = $data['reference'] ?? null;
-        
-        if (!$reference) {
-            return;
-        }
-
-        $order = Order::where('payment_reference', $reference)->first();
-        
-        if (!$order || $order->status === Order::STATUS_PAID) {
-            return;
-        }
-
-        $this->processSuccessfulPayment($order, $reference);
     }
 
     /**
@@ -398,7 +357,7 @@ class OrderController
      */
     private function handleChargeFailed(array $data): void
     {
-        $reference = $data['reference'] ?? null;
+        $reference = $data['orderId'] ?? null;
         
         if (!$reference) {
             return;
@@ -478,7 +437,7 @@ class OrderController
                         (float) $item->organizer_amount,
                         (float) $item->payment_fee,
                         "Ticket sale: {$event->title}",
-                        'expresspay',
+                        'kowri',
                         'website'
                     );
 
@@ -616,74 +575,4 @@ class OrderController
         }
     }
 
-   /**
-     * Verify payment with Paystack API
-     * 
-     * @param string $reference Payment reference
-     * @return array|null Payment data if successful, null if failed
-     */
-    private function verifyPaystackPayment(string $reference): ?array
-    {
-        try {
-            $url = "https://api.paystack.co/transaction/verify/" . rawurlencode($reference);
-            
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                "Authorization: Bearer " . $this->paystackSecretKey,
-                "Content-Type: application/json",
-            ]);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            
-            // SSL Configuration
-            // For production, download cacert.pem from https://curl.se/ca/cacert.pem
-            // and set: curl_setopt($ch, CURLOPT_CAINFO, '/path/to/cacert.pem');
-            $isProduction = ($_ENV['APP_ENV'] ?? 'development') === 'production';
-            
-            if (!$isProduction) {
-                // Development: Disable SSL verification (NOT for production!)
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            } else {
-                // Production: Verify SSL properly
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-                
-                // If you have a CA bundle file, uncomment and set path:
-                // $caPath = $_ENV['CURL_CA_BUNDLE'] ?? null;
-                // if ($caPath && file_exists($caPath)) {
-                //     curl_setopt($ch, CURLOPT_CAINFO, $caPath);
-                // }
-            }
-            
-            $result = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $err = curl_error($ch);
-            curl_close($ch);
-
-            if ($err) {
-                error_log("Paystack verification cURL error: " . $err);
-                return null;
-            }
-
-            if ($httpCode !== 200) {
-                error_log("Paystack verification HTTP error: {$httpCode}, Response: {$result}");
-                return null;
-            }
-
-            $paystackResponse = json_decode($result, true);
-
-            if (!$paystackResponse || !isset($paystackResponse['status']) || !$paystackResponse['status']) {
-                error_log("Paystack verification failed: Invalid response - " . ($result ?? 'empty'));
-                return null;
-            }
-
-            error_log("Paystack verification successful for reference: {$reference}");
-            return $paystackResponse['data'] ?? null;
-        } catch (Exception $e) {
-            error_log("Paystack verification exception: " . $e->getMessage());
-            return null;
-        }
-    }
 }

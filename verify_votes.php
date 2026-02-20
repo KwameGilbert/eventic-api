@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * Vote Verification Job
  * 
- * Checks all pending votes with a payment token and verifies them with ExpressPay.
+ * Checks all pending votes with a payment token and verifies them with Kowri.
  * Run as cron job: * * * * * php /path/to/verify_votes.php
  */
 
@@ -16,10 +16,10 @@ $app = require_once BOOTSTRAP . 'app.php';
 use App\Models\AwardVote;
 use App\Models\Transaction;
 use App\Models\OrganizerBalance;
-use App\Services\ExpressPayService;
+use App\Services\KowriService;
 
-// Initialize ExpressPay service
-$expressPayService = new ExpressPayService();
+// Initialize Kowri service
+$kowriService = new KowriService();
 
 echo "[" . date('Y-m-d H:i:s') . "] Award Vote Verification Job Started\n";
 echo str_repeat('-', 50) . "\n";
@@ -43,9 +43,9 @@ if ($pendingVotes->isEmpty()) {
         try {
             echo "Processing Vote ID: {$vote->id} (Ref: {$vote->reference})... ";
             
-            $paymentStatus = $expressPayService->queryTransaction($vote->payment_token);
+            $paymentStatus = $kowriService->queryTransaction($vote->payment_token);
             
-            if ($paymentStatus['status'] === 'success') {
+            if ($paymentStatus['status'] === 'paid') {
                 // Double check if already paid by some reason
                 if ($vote->status === 'paid') {
                     echo "ALREADY PAID\n";
@@ -74,7 +74,9 @@ if ($pendingVotes->isEmpty()) {
                             (float) $vote->admin_amount,
                             (float) $vote->organizer_amount,
                             (float) $vote->payment_fee,
-                            "Vote purchase (Verified): {$award->title}"
+                            "Vote purchase (Verified): {$award->title}",
+                            'kowri',
+                            'website'
                         );
 
                         // Update organizer balance

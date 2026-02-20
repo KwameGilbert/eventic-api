@@ -8,6 +8,6 @@ define('CONFIG', BASE . 'src/config/');
 define('MIDDLEWARE', BASE . 'src/middleware/');
 define('HELPER', BASE . 'src/helpers/');
 define('SERVICE', BASE . 'src/services/');
-define('BOOTSTRAP', BASE . '/src/bootstrap/')
+define('BOOTSTRAP', BASE . '/src/bootstrap/');
 
 ?>     

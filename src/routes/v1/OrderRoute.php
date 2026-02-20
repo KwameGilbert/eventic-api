@@ -23,6 +23,6 @@ return function (App $app): void {
         $group->post('/{id}/cancel', [$orderController, 'cancel']);
     })->add($authMiddleware);
 
-    // Public Paystack Webhook (no auth required - verified by signature)
-    $app->post('/v1/payment/webhook', [$orderController, 'paystackWebhook']);
+    // Public Payment Webhook (no auth required - verified by provider)
+    $app->post('/v1/payment/webhook', [$orderController, 'handleWebhook']);
 };

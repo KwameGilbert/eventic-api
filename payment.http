@@ -1,0 +1,218 @@
+
+###
+@BASE_URL = https://posapi.kowri.app
+@SECRET = $2a$10$K3qCU1sLYzDvWUxeFxV0KuSDcw1A3/9ffw64M7WsUzEXcOa9pta4m
+@APP_ID = 892ba383-1d4a-4508-867f-c3b3fc1d5efc
+
+@APP_REFERENCE = eventic-payment
+
+//RANDOMLY GENERATED UUID
+@REQUEST_ID = randomUUID()
+
+@MERCHANT_ORDER_ID = 123456789
+@REFERENCE = 0541436414
+###
+POST {{BASE_URL}}/webpos/listPayOptions
+Content-Type: application/json
+appId: {{APP_ID}}
+
+{
+    "requestId":"{{REQUEST_ID}}",
+    "appReference":"{{APP_REFERENCE}}",
+    "secret":"{{SECRET}}"
+}
+
+###
+#response
+HTTP/1.1 200 OK
+Date: Fri, 20 Feb 2026 14:42:11 GMT
+Content-Type: application/json;charset=UTF-8
+Transfer-Encoding: chunked
+Connection: close
+Server: cloudflare
+access-control-allow-origin: https://webpos.kowri.app
+access-control-allow-methods: POST, PUT, GET, OPTIONS, DELETE
+access-control-max-age: 3600
+access-control-allow-headers: accept, authorization
+x-content-type-options: nosniff, nosniff
+x-xss-protection: 1; mode=block, 1; mode=block
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+expires: 0
+x-frame-options: DENY, SAMEORIGIN
+content-security-policy: frame-ancestors 'none'
+Content-Encoding: gzip
+cf-cache-status: DYNAMIC
+vary: accept-encoding
+Server-Timing: cfCacheStatus;desc="DYNAMIC", cfEdge;dur=22,cfOrigin;dur=176
+CF-RAY: 9d0ec4e45c9c6542-LHR
+
+{
+  "requestId": "123456789",
+  "success": true,
+  "statusCode": "SUCCESS",
+  "statusMessage": "Payment options retrieved successfully",
+  "result": [
+    {
+      "name": "AirtelTigo Money",
+      "description": "AirtelTigo Money",
+      "logo": "https://dgmkibrygddg4.cloudfront.net/static/images/logo/233260.png",
+      "maxAmount": 100000.0,
+      "minAmount": 0.1,
+      "walletRef": "Mobile Number",
+      "refRegex": "[0-9]+",
+      "type": "MOBILE_MONEY",
+      "provider": "AIRTELTIGO_MONEY",
+      "preAuthNotice": "Please ensure you have sufficient funds in your wallet, otherwise, you may not receive the prompt",
+      "authNotice": "Please check your phone for a prompt from AirtelTigo Money. NOTE: Make sure you have sufficient funds in your AirtelTigo Money Wallet.",
+      "flowType": "PROMPT",
+      "serviceCode": "23326",
+      "hasLookup": true
+    },
+    {
+      "name": "Telecel Cash",
+      "description": "Telecel Cash",
+      "logo": "https://dgmkibrygddg4.cloudfront.net/static/images/logo/23320.png",
+      "maxAmount": 100000.0,
+      "minAmount": 0.1,
+      "walletRef": "Mobile Number",
+      "refRegex": "[0-9]+",
+      "type": "MOBILE_MONEY",
+      "provider": "VODAFONE_CASH",
+      "preAuthNotice": "Please ensure you have sufficient funds in your wallet, otherwise, you may not receive the prompt",
+      "authNotice": "Please check your phone for a prompt from Telecel Cash. NOTE: Make sure you have sufficient funds in your Telecel Cash Wallet.",
+      "flowType": "PROMPT",
+      "serviceCode": "23320",
+      "hasLookup": false
+    },
+    {
+      "name": "MTN MONEY",
+      "description": "MTN Mobile Money MADAPI",
+      "logo": "https://dgmkibrygddg4.cloudfront.net/static/images/logo/23324.png",
+      "maxAmount": 100000.0,
+      "minAmount": 0.5,
+      "walletRef": "Mobile Number",
+      "refRegex": "[0-9]+",
+      "type": "MOBILE_MONEY",
+      "provider": "MTN_MONEY",
+      "preAuthNotice": "Please ensure you have sufficient funds in your wallet, otherwise, you may not receive the prompt",
+      "authNotice": "Please check your phone for a prompt from MTN Mobile Money or Kindly Dial *170# , Select My approvals to complete the transaction.",
+      "flowType": "PROMPT",
+      "serviceCode": "23324",
+      "hasLookup": true
+    }
+  ]
+}
+
+###
+
+POST {{BASE_URL}}/webpos/createInvoice
+Content-Type: application/json
+appId: {{APP_ID}}
+
+{
+    "requestId":"{{REQUEST_ID}}",
+    "appReference":"{{APP_REFERENCE}}",
+    "secret":"{{SECRET}}",
+    "merchantOrderId":"{{MERCHANT_ORDER_ID}}",
+    "amount":1,
+    "currency":"GHS",
+    "reference":"{{REFERENCE}}",
+    "trustedNum": "233541436414",
+    "invoiceItems": [{
+        "name": "Eventic Payment",
+        "description": "Payment for eventic",
+        "imgUrl": "https://test.usebillbox.com/static/images/logo/apsu.jpg",
+        "unitPrice": 1,
+        "quantity": 1,
+        "subTotal": 1
+    }] //Optional for invoice with no items
+}
+
+###
+#Response
+HTTP/1.1 200 OK
+Date: Fri, 20 Feb 2026 14:39:27 GMT
+Content-Type: application/json;charset=UTF-8
+Transfer-Encoding: chunked
+Connection: close
+Server: cloudflare
+access-control-allow-origin: https://webpos.kowri.app
+access-control-allow-methods: POST, PUT, GET, OPTIONS, DELETE
+access-control-max-age: 3600
+access-control-allow-headers: accept, authorization
+x-content-type-options: nosniff, nosniff
+x-xss-protection: 1; mode=block, 1; mode=block
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+pragma: no-cache
+expires: 0
+x-frame-options: DENY, SAMEORIGIN
+content-security-policy: frame-ancestors 'none'
+Content-Encoding: gzip
+cf-cache-status: DYNAMIC
+vary: accept-encoding
+Server-Timing: cfCacheStatus;desc="DYNAMIC", cfEdge;dur=8,cfOrigin;dur=204
+CF-RAY: 9d0ec0e1985650f1-LHR
+
+{
+  "requestId": "123456789",
+  "success": true,
+  "statusCode": "SUCCESS",
+  "statusMessage": "Invoice created successfully",
+  "result": {
+    "serviceCode": "6115",
+    "invoiceNum": "814fc7dc-4f54-4cf8-9a07-4aea5b6cdb9d",
+    "merchantOrderId": "123456789",
+    "payerName": null,
+    "payerEmail": null,
+    "payerNumber": null,
+    "currency": "GHS",
+    "itemCount": 1,
+    "invoiceAmount": "1.00",
+    "shipping": "0",
+    "taxAmount": "0",
+    "discountAmount": "0",
+    "fees": "0.01",
+    "grandTotal": "1.01",
+    "status": "OPEN",
+    "callbackUrl": "https://eventic-api.kantatech.io",
+    "paymentCurrency": "GHS",
+    "paymentAmount": 1.01,
+    "exchangeRate": 1.0,
+    "discounts": null,
+    "checkoutUrl": "https://webpos.kowri.app/kowri/814fc7dc-4f54-4cf8-9a07-4aea5b6cdb9d",
+    "merchantDetails": {
+      "name": "Kantatech LTD",
+      "callbackUrl": "",
+      "supportNumber": "",
+      "supportEmail": ""
+    },
+    "taxes": {}
+  }
+}
+
+###
+//Get Invoice Summary
+POST {{BASE_URL}}/webpos/getInvoiceSummary
+Content-Type: application/json
+appId: {{APP_ID}}
+
+{
+    "requestId":"{{REQUEST_ID}}",
+    "appReference":"{{APP_REFERENCE}}",
+    "secret":"{{SECRET}}",
+    "merchantOrderId":"{{MERCHANT_ORDER_ID}}"
+}
+###
+Parameter List for Get Invoice Summary with Merchant Order ID
+Parameter	Description	Req	Type
+requestId	unique identifier for every request made via the endpoint	Yes	string
+appReference	Merchant API APP Reference	Yes	string
+secret	Merchant API APP Secret	Yes	string
+merchantOrderId	ID of order generated by merchant	Yes	string
+Parameter List for Get Invoice Summary with Invoice Number
+Parameter	Description	Req	Type
+requestId	unique identifier for every request made via the endpoint	Yes	string
+appReference	Merchant API APP Reference	Yes	string
+secret	Merchant API APP Secret	Yes	string
+invoiceNum	invoice number of order generated by merchant	Yes	string

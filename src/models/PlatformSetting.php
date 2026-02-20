@@ -128,10 +128,10 @@ class PlatformSetting extends Model
     }
 
     /**
-     * Get Paystack fee percentage
+     * Get payment fee percentage
      */
-    public static function getPaystackFeePercent(): float
+    public static function getPaymentFeePercent(): float
     {
-        return (float) self::get('paystack_fee_percent', 1.5);
+        return (float) self::get('payment_fee_percent', 1.5);
     }
 }

@@ -29,7 +29,7 @@ return function ($app): void {
 
         // Orders & Payments
         '/v1/orders' => ROUTE . 'v1/OrderRoute.php',
-        '/v1/payment' => ROUTE . 'v1/OrderRoute.php', // Paystack webhook
+        '/v1/payment' => ROUTE . 'v1/OrderRoute.php', // Kowri payment status / webhooks
 
         // Scanners & POS
         '/v1/scanners' => ROUTE . 'v1/ScannerRoute.php',
