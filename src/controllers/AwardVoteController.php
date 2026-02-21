@@ -13,6 +13,7 @@ use App\Models\Event;
 use App\Models\Organizer;
 use App\Models\Transaction;
 use App\Models\OrganizerBalance;
+use App\Services\ActivityLogService;
 use App\Services\KowriService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -21,10 +22,12 @@ use Exception;
 class AwardVoteController
 {
     private KowriService $kowriService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct()
+    public function __construct(ActivityLogService $activityLogger)
     {
         $this->kowriService = new KowriService();
+        $this->activityLogger = $activityLogger;
     }
     /**
      * Initiate a vote (create pending vote and return payment details)
@@ -133,6 +136,21 @@ class AwardVoteController
             
             // Save payment token
             $vote->update(['payment_token' => $paymentToken]);
+
+            // Log activity
+            $userId = null;
+            $tokenUser = $request->getAttribute('user');
+            if ($tokenUser) {
+                $userId = $tokenUser->id;
+            }
+
+            $this->activityLogger->log(
+                $userId, 
+                'initiate_vote', 
+                'AwardVote', 
+                $vote->id, 
+                "Initiated {$numberOfVotes} votes for {$nominee->name} (Reference: {$reference})"
+            );
 
             // Return payment information with checkout URL
             $voteDetails = [
@@ -338,6 +356,16 @@ class AwardVoteController
             // Mark vote as paid
             $vote->status = 'paid';
             $vote->save();
+
+            // Log activity (confirmed vote)
+            $this->activityLogger->log(
+                null, // System/IPN action
+                'confirm_vote', 
+                'AwardVote', 
+                $vote->id, 
+                "Confirmed {$vote->number_of_votes} votes for nominee ID #{$vote->nominee_id} (Reference: {$orderId})"
+            );
+
 
             error_log("IPN: Vote confirmed. ID: {$vote->id}, Reference: {$orderId}");
 

@@ -9,6 +9,7 @@ use App\Models\AwardCategory;
 use App\Models\Event;
 use App\Models\Award;
 use App\Models\Organizer;
+use App\Services\ActivityLogService;
 use App\Services\UploadService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -17,10 +18,12 @@ use Exception;
 class AwardCategoryController
 {
     private UploadService $uploadService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct()
+    public function __construct(ActivityLogService $activityLogger)
     {
         $this->uploadService = new UploadService();
+        $this->activityLogger = $activityLogger;
     }
     /**
      * Get all categories for an award
@@ -181,6 +184,15 @@ public function create(Request $request, Response $response, array $args): Respo
 
         $category = AwardCategory::create($data);
 
+        // Log activity
+        $this->activityLogger->logCreate(
+            $user->id, 
+            'AwardCategory', 
+            $category->id, 
+            $category->toArray(), 
+            "Created award category: {$category->name} for award #{$category->award_id}"
+        );
+
         return ResponseHelper::success($response, 'Award category created successfully', $category->toArray(), 201);
     } catch (Exception $e) {
         return ResponseHelper::error($response, 'Failed to create award category', 500, $e->getMessage());
@@ -240,7 +252,18 @@ public function create(Request $request, Response $response, array $args): Respo
                 }
             }
 
+            $oldValues = $category->getOriginal();
             $category->update($data);
+
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'AwardCategory', 
+                $category->id, 
+                $oldValues, 
+                $category->getChanges(), 
+                "Updated award category: {$category->name}"
+            );
 
             $responseData = $category->toArray();
             $responseData['voting_status'] = $category->getEffectiveVotingStatus();
@@ -282,7 +305,20 @@ public function create(Request $request, Response $response, array $args): Respo
                 return ResponseHelper::error($response, 'Cannot delete category with paid votes. Deactivate it instead.', 400);
             }
 
+            $oldValues = $category->toArray();
+            $categoryName = $category->name;
+            $categoryId = $category->id;
+
             $category->delete();
+
+            // Log activity
+            $this->activityLogger->logDelete(
+                $user->id, 
+                'AwardCategory', 
+                $categoryId, 
+                $oldValues, 
+                "Deleted award category: {$categoryName}"
+            );
 
             return ResponseHelper::success($response, 'Award category deleted successfully');
         } catch (Exception $e) {
@@ -362,6 +398,15 @@ public function create(Request $request, Response $response, array $args): Respo
                 ->ordered()
                 ->get();
 
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'reorder', 
+                'AwardCategory', 
+                null, 
+                "Reordered categories for award #{$awardId}"
+            );
+
             return ResponseHelper::success($response, 'Categories reordered successfully', $categories->toArray());
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to reorder categories', 500, $e->getMessage());
@@ -407,6 +452,15 @@ public function create(Request $request, Response $response, array $args): Respo
 
             $category->voting_status = $status;
             $category->save();
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'toggle_voting', 
+                'AwardCategory', 
+                $category->id, 
+                "Toggled voting status to {$status} for category: {$category->name}"
+            );
 
             return ResponseHelper::success($response, 'Category voting status updated successfully', [
                 'id' => $category->id,

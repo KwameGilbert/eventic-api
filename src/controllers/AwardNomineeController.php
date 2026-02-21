@@ -9,6 +9,7 @@ use App\Models\AwardNominee;
 use App\Models\AwardCategory;
 use App\Models\Award;
 use App\Models\Organizer;
+use App\Services\ActivityLogService;
 use App\Services\UploadService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -17,10 +18,12 @@ use Exception;
 class AwardNomineeController
 {
     private UploadService $uploadService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct(UploadService $uploadService)
+    public function __construct(UploadService $uploadService, ActivityLogService $activityLogger)
     {
         $this->uploadService = $uploadService;
+        $this->activityLogger = $activityLogger;
     }
     /**
      * Get all nominees for a category
@@ -260,6 +263,15 @@ public function create(Request $request, Response $response, array $args): Respo
 
         $nominee = AwardNominee::create($data);
 
+        // Log activity
+        $this->activityLogger->logCreate(
+            $user->id, 
+            'AwardNominee', 
+            $nominee->id, 
+            $nominee->toArray(), 
+            "Created nominee: {$nominee->name} in category #{$nominee->category_id}"
+        );
+
         return ResponseHelper::success($response, 'Nominee created successfully', $nominee->toArray(), 201);
     } catch (Exception $e) {
         return ResponseHelper::error($response, 'Failed to create nominee', 500, $e->getMessage());
@@ -312,7 +324,18 @@ public function create(Request $request, Response $response, array $args): Respo
                 }
             }
 
+            $oldValues = $nominee->getOriginal();
             $nominee->update($data);
+
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'AwardNominee', 
+                $nominee->id, 
+                $oldValues, 
+                $nominee->getChanges(), 
+                "Updated nominee: {$nominee->name}"
+            );
 
             return ResponseHelper::success($response, 'Nominee updated successfully', $nominee->fresh()->toArray());
         } catch (Exception $e) {
@@ -356,7 +379,20 @@ public function create(Request $request, Response $response, array $args): Respo
                 $this->uploadService->deleteFile($nominee->image);
             }
 
+            $oldValues = $nominee->toArray();
+            $nomineeName = $nominee->name;
+            $nomineeId = $nominee->id;
+
             $nominee->delete();
+
+            // Log activity
+            $this->activityLogger->logDelete(
+                $user->id, 
+                'AwardNominee', 
+                $nomineeId, 
+                $oldValues, 
+                "Deleted nominee: {$nomineeName}"
+            );
 
             return ResponseHelper::success($response, 'Nominee deleted successfully');
         } catch (Exception $e) {
@@ -432,6 +468,15 @@ public function create(Request $request, Response $response, array $args): Respo
             $nominees = AwardNominee::where('category_id', $categoryId)
                 ->ordered()
                 ->get();
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'reorder', 
+                'AwardNominee', 
+                null, 
+                "Reordered nominees for category #{$categoryId}"
+            );
 
             return ResponseHelper::success($response, 'Nominees reordered successfully', $nominees->toArray());
         } catch (Exception $e) {

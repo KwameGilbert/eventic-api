@@ -17,6 +17,7 @@ use App\Models\PlatformSetting;
 use App\Models\AwardVote;
 use App\Models\PayoutRequest;
 use App\Models\OrganizerBalance;
+use App\Services\ActivityLogService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -29,6 +30,12 @@ use Exception;
  */
 class OrganizerController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Get dashboard data for the authenticated organizer
      * This endpoint provides all necessary data for the organizer dashboard in a single call
@@ -798,10 +805,21 @@ class OrganizerController
             // Authorization: Check if user is admin or the profile owner
             $user = $request->getAttribute('user');
             if (!in_array($user->role, ['admin', 'super_admin']) && $organizer->user_id !== $user->id) {
-                return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
+                return ResponseHelper::error($response, 'Unauthorized. Admin or owner access required.', 403);
             }
 
-            $organizer->updateProfile($data);
+            $oldValues = $organizer->getOriginal();
+            $organizer->update($data);
+
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'Organizer', 
+                $organizer->id, 
+                $oldValues, 
+                $organizer->getChanges(), 
+                "Updated organizer profile: {$organizer->organization_name}"
+            );
 
             return ResponseHelper::success($response, 'Organizer updated successfully', $organizer->toArray());
         } catch (Exception $e) {

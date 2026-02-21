@@ -102,6 +102,9 @@ class PayoutRequest extends Model
         return $this->belongsTo(Award::class);
     }
 
+    /**
+     * @return BelongsTo
+     */
     public function processor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'processed_by');

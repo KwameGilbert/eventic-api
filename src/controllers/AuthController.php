@@ -10,6 +10,7 @@ use App\Models\Organizer;
 use App\Models\EmailVerificationToken;
 use App\Helper\ResponseHelper;
 use App\Services\AuthService;
+use App\Services\ActivityLogService;
 use App\Services\EmailService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -30,10 +31,12 @@ use Exception;
 class AuthController
 {
     private AuthService $authService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct(AuthService $authService)
+    public function __construct(AuthService $authService, ActivityLogService $activityLogger)
     {
         $this->authService = $authService;
+        $this->activityLogger = $activityLogger;
     }
 
     /**
@@ -74,6 +77,15 @@ class AuthController
 
             // Log registration event
             $this->authService->logAuditEvent($user->id, 'register', $metadata);
+            
+            // Log to activity log
+            $this->activityLogger->log(
+                $user->id, 
+                'register', 
+                'User', 
+                $user->id, 
+                "User registered: {$user->email}"
+            );
 
             // Generate email verification token and send verification email
             $this->sendVerificationEmail($user);
@@ -204,6 +216,15 @@ class AuthController
 
             // Log successful login event
             $this->authService->logAuditEvent($user->id, 'login', $metadata);
+
+            // Log to activity log
+            $this->activityLogger->log(
+                $user->id, 
+                'login', 
+                'User', 
+                $user->id, 
+                "User logged in: {$user->email}"
+            );
 
             $tokenExpiry = $this->authService->getTokenExpiry();
 
@@ -340,6 +361,15 @@ class AuthController
 
             // Log password change event
             $this->authService->logAuditEvent($user->id, 'password_changed', $metadata);
+
+            // Log to activity log
+            $this->activityLogger->log(
+                $user->id, 
+                'password_change', 
+                'User', 
+                $user->id, 
+                "User changed password: {$user->email}"
+            );
 
             // Optionally revoke all other refresh tokens for security
             if (!empty($data['logout_other_devices'])) {
@@ -514,6 +544,15 @@ class AuthController
                 'ip_address' => $request->getServerParams()['REMOTE_ADDR'] ?? null,
                 'user_agent' => $request->getHeaderLine('User-Agent'),
             ]);
+
+            // Log to activity log
+            $this->activityLogger->log(
+                $user->id, 
+                'email_verified', 
+                'User', 
+                $user->id, 
+                "User email verified: {$user->email}"
+            );
 
             // Send welcome email now that the user is verified
             try {

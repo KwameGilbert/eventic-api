@@ -10,6 +10,7 @@ use App\Models\Organizer;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Services\ActivityLogService;
 use Exception;
 
 /**
@@ -18,6 +19,12 @@ use Exception;
  */
 class TicketTypeController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Get all ticket types for an event
      */
@@ -165,6 +172,15 @@ class TicketTypeController
 
             $ticketType = TicketType::create($data);
 
+            // Log activity
+            $this->activityLogger->logCreate(
+                $user->id, 
+                'TicketType', 
+                $ticketType->id, 
+                $ticketType->toArray(), 
+                "Created ticket type: {$ticketType->name} for event #{$ticketType->event_id}"
+            );
+
             return ResponseHelper::success($response, 'Ticket type created successfully', $ticketType->toArray(), 201);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to create ticket type', 500, $e->getMessage());
@@ -257,7 +273,18 @@ class TicketTypeController
                 }
             }
 
+            $oldValues = $ticketType->getOriginal();
             $ticketType->update($data);
+
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'TicketType', 
+                $ticketType->id, 
+                $oldValues, 
+                $ticketType->getChanges(), 
+                "Updated ticket type: {$ticketType->name}"
+            );
 
             return ResponseHelper::success($response, 'Ticket type updated successfully', $ticketType->toArray());
         } catch (Exception $e) {
@@ -292,7 +319,20 @@ class TicketTypeController
                 return ResponseHelper::error($response, 'Cannot delete ticket type with sold tickets. Deactivate it instead.', 400);
             }
 
+            $oldValues = $ticketType->toArray();
+            $ticketTypeName = $ticketType->name;
+            $ticketTypeId = $ticketType->id;
+
             $ticketType->delete();
+
+            // Log activity
+            $this->activityLogger->logDelete(
+                $user->id, 
+                'TicketType', 
+                $ticketTypeId, 
+                $oldValues, 
+                "Deleted ticket type: {$ticketTypeName}"
+            );
 
             return ResponseHelper::success($response, 'Ticket type deleted successfully');
         } catch (Exception $e) {

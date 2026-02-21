@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\User;
+use App\Services\ActivityLogService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -16,6 +17,12 @@ use Exception;
  */
 class UserController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Get all users
      */
@@ -104,8 +111,19 @@ class UserController
                 return ResponseHelper::error($response, 'Email already exists', 409);
             }
             
+            $oldValues = $user->getOriginal();
             $user->update($data);
             
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $requestUser->id, 
+                'User', 
+                $user->id, 
+                $oldValues, 
+                $user->getChanges(), 
+                "Updated user profile: {$user->email}"
+            );
+
             return ResponseHelper::success($response, 'User updated successfully', $user->toArray());
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to update user', 500, $e->getMessage());

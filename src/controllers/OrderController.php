@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Event;
 use App\Models\Transaction;
 use App\Models\OrganizerBalance;
+use App\Services\ActivityLogService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -25,10 +26,12 @@ use Exception;
 class OrderController
 {
     private \App\Services\KowriService $kowriService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct()
+    public function __construct(ActivityLogService $activityLogger)
     {
         $this->kowriService = new \App\Services\KowriService();
+        $this->activityLogger = $activityLogger;
     }
 
     /**
@@ -167,6 +170,15 @@ class OrderController
             // Generate unique reference
             $reference = 'EVT-' . $order->id . '-' . time();
             $order->update(['payment_reference' => $reference]);
+
+            // Log activity
+            $this->activityLogger->logCreate(
+                $user->id, 
+                'Order', 
+                $order->id, 
+                $order->toArray(), 
+                "Created order: {$order->order_number} for amount: {$order->total_amount}"
+            );
 
             return ResponseHelper::success($response, 'Order created successfully. Proceed to payment.', [
                 'order_id' => $order->id,
@@ -405,6 +417,15 @@ class OrderController
                 'paid_at' => \Illuminate\Support\Carbon::now(),
             ]);
 
+            // Log activity
+            $this->activityLogger->log(
+                $order->user_id, 
+                'confirm_order', 
+                'Order', 
+                $order->id, 
+                "Order #{$order->order_number} confirmed/paid via IPN"
+            );
+
             // Generate Tickets and create transactions
             $orderItems = $order->items()->with('event.organizer')->get();
 
@@ -563,7 +584,16 @@ class OrderController
             $order->update(['status' => Order::STATUS_CANCELLED]);
             
             DB::commit();
-            
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'cancel', 
+                'Order', 
+                $order->id, 
+                "Cancelled order: {$order->order_number}"
+            );
+
             return ResponseHelper::success($response, 'Order cancelled successfully', [
                 'order_id' => $order->id,
                 'status' => 'cancelled',

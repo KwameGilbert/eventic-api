@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Models\User;
 use App\Models\PasswordReset;
 use App\Services\AuthService;
+use App\Services\ActivityLogService;
 use App\Services\EmailService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -24,11 +25,13 @@ class PasswordResetController
 {
     private AuthService $authService;
     private EmailService $emailService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct(AuthService $authService, EmailService $emailService)
+    public function __construct(AuthService $authService, EmailService $emailService, ActivityLogService $activityLogger)
     {
         $this->authService = $authService;
         $this->emailService = $emailService;
+        $this->activityLogger = $activityLogger;
     }
 
     /**
@@ -78,6 +81,15 @@ class PasswordResetController
                 $user->id, 
                 'password_reset_requested', 
                 array_merge($metadata, ['extra' => ['email_sent' => $emailSent]])
+            );
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'password_reset_request', 
+                'User', 
+                $user->id, 
+                "Password reset link requested for: {$user->email}"
             );
 
             return ResponseHelper::success(
@@ -133,6 +145,15 @@ class PasswordResetController
 
             // Log audit event
             $this->authService->logAuditEvent($user->id, 'password_reset_completed', $metadata);
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'password_reset_complete', 
+                'User', 
+                $user->id, 
+                "Password reset completed for: {$user->email}"
+            );
 
             // Revoke all refresh tokens (force re-login on all devices for security)
             $this->authService->revokeAllUserTokens($user->id);

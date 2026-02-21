@@ -11,6 +11,7 @@ use App\Models\Organizer;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Services\ActivityLogService;
 use Exception;
 
 /**
@@ -19,6 +20,12 @@ use Exception;
  */
 class ScannerController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Create a new scanner account
      */
@@ -50,6 +57,15 @@ class ScannerController
                 'role' => 'scanner',
                 'status' => 'active'
             ]);
+
+            // Log activity
+            $this->activityLogger->log(
+                $organizerUser->id, 
+                'create_scanner', 
+                'User', 
+                $user->id, 
+                "Created scanner account: {$user->email}"
+            );
 
             return ResponseHelper::success($response, 'Scanner account created successfully', $user->toArray(), 201);
         } catch (Exception $e) {
@@ -105,6 +121,15 @@ class ScannerController
                 }
             }
 
+            // Log activity
+            $this->activityLogger->log(
+                $organizerUser->id, 
+                'assign_scanner', 
+                'User', 
+                $scannerUser->id, 
+                "Assigned scanner {$scannerUser->email} to " . count($assignments) . " events"
+            );
+
             return ResponseHelper::success($response, 'Scanner assigned to events successfully', $assignments);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to assign scanner', 500, $e->getMessage());
@@ -144,7 +169,19 @@ class ScannerController
             }
 
             
+            $scannerEmail = $scannerUser->email;
+            $scannerUserId = $scannerUser->id;
+            
             $scannerUser->delete();
+
+            // Log activity
+            $this->activityLogger->log(
+                $organizerUser->id, 
+                'delete_scanner', 
+                'User', 
+                $scannerUserId, 
+                "Deleted scanner account: {$scannerEmail}"
+            );
 
             return ResponseHelper::success($response, 'Scanner account deleted successfully');
         } catch (Exception $e) {

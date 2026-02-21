@@ -16,6 +16,7 @@ use App\Models\PayoutRequest;
 use App\Models\OrganizerBalance;
 use App\Models\Attendee;
 use App\Services\AuthService;
+use App\Services\ActivityLogService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -30,10 +31,12 @@ use Respect\Validation\Validator as v;
 class AdminController
 {
     private AuthService $authService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct(AuthService $authService)
+    public function __construct(AuthService $authService, ActivityLogService $activityLogger)
     {
         $this->authService = $authService;
+        $this->activityLogger = $activityLogger;
     }
     /**
      * Get admin dashboard overview
@@ -388,6 +391,15 @@ class AdminController
                 ]);
             }
 
+            // Log activity
+            $this->activityLogger->logCreate(
+                $jwtUser->id, 
+                'User', 
+                $user->id, 
+                $user->toArray(), 
+                "Admin created user: {$user->email} with role: {$user->role}"
+            );
+
             return ResponseHelper::success($response, 'User created successfully', [
                 'user' => [
                     'id' => $user->id,
@@ -430,6 +442,15 @@ class AdminController
             $event->status = Event::STATUS_PUBLISHED;
             $event->save();
 
+            // Log activity
+            $this->activityLogger->log(
+                $jwtUser->id, 
+                'approve', 
+                'Event', 
+                $event->id, 
+                "Admin approved event: {$event->title}"
+            );
+
             return ResponseHelper::success($response, 'Event approved successfully', ['event' => $event]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to approve event', 500, $e->getMessage());
@@ -462,6 +483,15 @@ class AdminController
 
             $event->status = Event::STATUS_DRAFT;
             $event->save();
+
+            // Log activity
+            $this->activityLogger->log(
+                $jwtUser->id, 
+                'reject', 
+                'Event', 
+                $event->id, 
+                "Admin rejected event: {$event->title}"
+            );
 
             return ResponseHelper::success($response, 'Event rejected successfully', ['event' => $event]);
         } catch (Exception $e) {
@@ -496,6 +526,15 @@ class AdminController
             $award->status = Award::STATUS_PUBLISHED;
             $award->save();
 
+            // Log activity
+            $this->activityLogger->log(
+                $jwtUser->id, 
+                'approve', 
+                'Award', 
+                $award->id, 
+                "Admin approved award: {$award->title}"
+            );
+
             return ResponseHelper::success($response, 'Award approved successfully', ['award' => $award]);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to approve award', 500, $e->getMessage());
@@ -528,6 +567,15 @@ class AdminController
 
             $award->status = Award::STATUS_DRAFT;
             $award->save();
+
+            // Log activity
+            $this->activityLogger->log(
+                $jwtUser->id, 
+                'reject', 
+                'Award', 
+                $award->id, 
+                "Admin rejected award: {$award->title}"
+            );
 
             return ResponseHelper::success($response, 'Award rejected successfully', ['award' => $award]);
         } catch (Exception $e) {
@@ -698,7 +746,19 @@ class AdminController
 
             // Delete the event (cascade will handle related records)
             $eventTitle = $event->title;
+            $eventId = $event->id;
+            $oldValues = $event->toArray();
+            
             $event->delete();
+
+            // Log activity
+            $this->activityLogger->logDelete(
+                $jwtUser->id, 
+                'Event', 
+                $eventId, 
+                $oldValues, 
+                "Admin deleted event: {$eventTitle}"
+            );
 
             return ResponseHelper::success($response, 'Event deleted successfully', [
                 'event_title' => $eventTitle,

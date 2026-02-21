@@ -24,6 +24,7 @@ use App\Controllers\OrderController;
 use App\Controllers\TicketController;
 use App\Controllers\ScannerController;
 use App\Controllers\PosController;
+use App\Controllers\PayoutController;
 use App\Controllers\AwardController;
 use App\Controllers\AwardCategoryController;
 use App\Controllers\AwardNomineeController;
@@ -79,6 +80,10 @@ return function ($container) {
         );
     });
 
+    $container->set(\App\Services\ActivityLogService::class, function () {
+        return new \App\Services\ActivityLogService();
+    });
+
     $container->set(\Psr\Http\Message\ResponseFactoryInterface::class, function () {
         return new \Slim\Psr7\Factory\ResponseFactory();
     });
@@ -86,30 +91,34 @@ return function ($container) {
     // ==================== CONTROLLERS ====================
     
     $container->set(AuthController::class, function ($container) {
-        return new AuthController($container->get(AuthService::class));
+        return new AuthController(
+            $container->get(AuthService::class),
+            $container->get(\App\Services\ActivityLogService::class)
+        );
     });
     
-    $container->set(UserController::class, function () {
-        return new UserController();
+    $container->set(UserController::class, function ($container) {
+        return new UserController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(OrganizerController::class, function () {
-        return new OrganizerController();
+    $container->set(OrganizerController::class, function ($container) {
+        return new OrganizerController($container->get(\App\Services\ActivityLogService::class));
     });
     
     $container->set(PasswordResetController::class, function ($container) {
         return new PasswordResetController(
             $container->get(AuthService::class),
-            $container->get(EmailService::class)
+            $container->get(EmailService::class),
+            $container->get(\App\Services\ActivityLogService::class)
         );
     });
 
-    $container->set(AttendeeController::class, function () {
-        return new AttendeeController();
+    $container->set(AttendeeController::class, function ($container) {
+        return new AttendeeController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(EventController::class, function () {
-        return new EventController();
+    $container->set(EventController::class, function ($container) {
+        return new EventController($container->get(\App\Services\ActivityLogService::class));
     });
 
     $container->set(EventImageController::class, function ($container) {
@@ -118,42 +127,47 @@ return function ($container) {
         );
     });
 
-    $container->set(TicketTypeController::class, function () {
-        return new TicketTypeController();
+    $container->set(TicketTypeController::class, function ($container) {
+        return new TicketTypeController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(OrderController::class, function () {
-        return new OrderController();
+    $container->set(OrderController::class, function ($container) {
+        return new OrderController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(TicketController::class, function () {
-        return new TicketController();
+    $container->set(TicketController::class, function ($container) {
+        return new TicketController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(ScannerController::class, function () {
-        return new ScannerController();
+    $container->set(ScannerController::class, function ($container) {
+        return new ScannerController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(PosController::class, function () {
-        return new PosController();
+    $container->set(PosController::class, function ($container) {
+        return new PosController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(AwardController::class, function () {
-        return new AwardController();
+    $container->set(PayoutController::class, function ($container) {
+        return new PayoutController($container->get(\App\Services\ActivityLogService::class));
     });
 
-    $container->set(AwardCategoryController::class, function () {
-        return new AwardCategoryController();
+    $container->set(AwardController::class, function ($container) {
+        return new AwardController($container->get(\App\Services\ActivityLogService::class));
+    });
+
+    $container->set(AwardCategoryController::class, function ($container) {
+        return new AwardCategoryController($container->get(\App\Services\ActivityLogService::class));
     });
 
     $container->set(AwardNomineeController::class, function ($container) {
         return new AwardNomineeController(
-            $container->get(\App\Services\UploadService::class)
+            $container->get(\App\Services\UploadService::class),
+            $container->get(\App\Services\ActivityLogService::class)
         );
     });
 
-    $container->set(AwardVoteController::class, function () {
-        return new AwardVoteController();
+    $container->set(AwardVoteController::class, function ($container) {
+        return new AwardVoteController($container->get(\App\Services\ActivityLogService::class));
     });
 
     $container->set(SearchController::class, function () {
@@ -161,7 +175,10 @@ return function ($container) {
     });
 
     $container->set(AdminController::class, function ($container) {
-        return new AdminController($container->get(AuthService::class));
+        return new AdminController(
+            $container->get(AuthService::class),
+            $container->get(\App\Services\ActivityLogService::class)
+        );
     });
     
     // ==================== MIDDLEWARES ====================

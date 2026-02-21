@@ -15,6 +15,7 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Illuminate\Database\Capsule\Manager as DB;
 use Illuminate\Support\Carbon;
+use App\Services\ActivityLogService;
 use Exception;
 
 /**
@@ -24,6 +25,12 @@ use Exception;
  */
 class PayoutController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Get payout request history for current organizer
      * GET /v1/organizer/payouts
@@ -265,6 +272,15 @@ class PayoutController
                 'notes' => $data['notes'] ?? null,
             ]);
 
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'request_payout', 
+                'PayoutRequest', 
+                $payout->id, 
+                "Requested event payout of GHS {$requestedAmount} for (Event #{$eventId})"
+            );
+
             return ResponseHelper::success($response, 'Payout request submitted successfully', [
                 'payout_id' => $payout->id,
                 'amount' => $requestedAmount,
@@ -382,6 +398,15 @@ class PayoutController
                 'notes' => $data['notes'] ?? null,
             ]);
 
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'request_payout', 
+                'PayoutRequest', 
+                $payout->id, 
+                "Requested award payout of GHS {$requestedAmount} for (Award #{$awardId})"
+            );
+
             return ResponseHelper::success($response, 'Payout request submitted successfully', [
                 'payout_id' => $payout->id,
                 'amount' => $requestedAmount,
@@ -420,6 +445,15 @@ class PayoutController
             }
 
             $payout->update(['status' => 'cancelled']);
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'cancel_payout', 
+                'PayoutRequest', 
+                $payout->id, 
+                "Cancelled payout request #{$payout->id}"
+            );
 
             return ResponseHelper::success($response, 'Payout request cancelled successfully');
         } catch (Exception $e) {
@@ -491,7 +525,7 @@ class PayoutController
                         'bank_name' => $payout->bank_name,
                         'status' => $payout->status,
                         'status_label' => $payout->getStatusLabel(),
-                        'processed_by' => $payout->processor ? $payout->processor->getAttribute('name') : null,
+                        'processed_by' => $payout->processor ? $payout->processor->name : null,
                         'processed_at' => $payout->processed_at?->toIso8601String(),
                         'rejection_reason' => $payout->rejection_reason,
                         'notes' => $payout->notes,
@@ -556,7 +590,7 @@ class PayoutController
                     'account_number' => $payout->account_number,
                     'account_name' => $payout->account_name,
                     'bank_name' => $payout->bank_name,
-                    'processed_by' => $payout->processor ? $payout->processor->getAttribute('name') : null,
+                    'processed_by' => $payout->processor ? $payout->processor->name : null,
                     'processed_at' => $payout->processed_at?->toIso8601String(),
                     'rejection_reason' => $payout->rejection_reason,
                     'notes' => $payout->notes,
@@ -596,6 +630,15 @@ class PayoutController
             if (!$payout->approve($user->id, $data['notes'] ?? null)) {
                 return ResponseHelper::error($response, 'Payout request cannot be approved', 400);
             }
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'approve_payout', 
+                'PayoutRequest', 
+                $payout->id, 
+                "Approved payout request #{$payout->id}"
+            );
 
             return ResponseHelper::success($response, 'Payout request approved successfully', [
                 'payout_id' => $payout->id,
@@ -637,6 +680,15 @@ class PayoutController
                 return ResponseHelper::error($response, 'Payout request cannot be rejected', 400);
             }
 
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'reject_payout', 
+                'PayoutRequest', 
+                $payout->id, 
+                "Rejected payout request #{$payout->id}. Reason: {$data['reason']}"
+            );
+
             return ResponseHelper::success($response, 'Payout request rejected successfully', [
                 'payout_id' => $payout->id,
                 'status' => $payout->status,
@@ -659,6 +711,7 @@ class PayoutController
         }
 
         try {
+            $user = $request->getAttribute('user');
             $payoutId = (int) $args['payoutId'];
             $data = $request->getParsedBody();
 
@@ -671,6 +724,15 @@ class PayoutController
             if (!$payout->markCompleted($data['notes'] ?? null)) {
                 return ResponseHelper::error($response, 'Payout is not in processing status', 400);
             }
+
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'complete_payout', 
+                'PayoutRequest', 
+                $payout->id, 
+                "Marked payout request #{$payout->id} as completed"
+            );
 
             return ResponseHelper::success($response, 'Payout completed successfully', [
                 'payout_id' => $payout->id,

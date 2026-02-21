@@ -9,6 +9,7 @@ use App\Models\ScannerAssignment;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Services\ActivityLogService;
 use Exception;
 
 /**
@@ -17,6 +18,12 @@ use Exception;
  */
 class TicketController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Get user's tickets
      */
@@ -158,6 +165,15 @@ class TicketController
             $ticket->admitted_at = \Illuminate\Support\Carbon::now();
             $ticket->save();
             
+            // Log activity
+            $this->activityLogger->log(
+                $user->id, 
+                'admit', 
+                'Ticket', 
+                $ticket->id, 
+                "Admitted ticket: {$ticket->ticket_code} for event #{$ticket->event_id}"
+            );
+
             return ResponseHelper::success($response, 'Ticket admitted successfully', [
                 'ticket_code' => $ticket->ticket_code,
                 'status' => $ticket->status,

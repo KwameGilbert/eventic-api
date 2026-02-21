@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Services\ActivityLogService;
 use Exception;
 
 /**
@@ -17,6 +18,12 @@ use Exception;
  */
 class AttendeeController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Get all attendees
      */
@@ -103,7 +110,18 @@ class AttendeeController
                 return ResponseHelper::error($response, 'Unauthorized: You do not own this profile', 403);
             }
 
+            $oldValues = $attendee->getOriginal();
             $attendee->updateProfile($data);
+            
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'Attendee', 
+                $attendee->id, 
+                $oldValues, 
+                $attendee->getChanges(), 
+                "Updated attendee profile: {$attendee->email}"
+            );
 
             return ResponseHelper::success($response, 'Attendee profile updated successfully', $attendee->toArray());
         } catch (Exception $e) {
@@ -211,8 +229,16 @@ class AttendeeController
 
             // Find or create attendee profile
             $attendee = Attendee::findByUserId($user->id);
-
+            
+            // Handle if profile doesn't exist yet
             if (!$attendee) {
+                $attendee = new Attendee();
+                $oldValues = null;
+            } else {
+                $oldValues = $attendee->getOriginal();
+            }
+
+            if (!$attendee->exists) {
                 // Parse name into first_name and last_name
                 $name = $user->name ?? '';
                 $nameParts = explode(' ', $name, 2);
@@ -228,8 +254,27 @@ class AttendeeController
                     'bio' => $data['bio'] ?? null,
                     'profile_image' => null,
                 ]);
+
+                // Log activity
+                $this->activityLogger->logCreate(
+                    $user->id, 
+                    'Attendee', 
+                    $attendee->id, 
+                    $attendee->toArray(), 
+                    "Created attendee profile: {$attendee->email}"
+                );
             } else {
                 $attendee->updateProfile($data);
+
+                // Log activity
+                $this->activityLogger->logUpdate(
+                    $user->id, 
+                    'Attendee', 
+                    $attendee->id, 
+                    $oldValues, 
+                    $attendee->getChanges(), 
+                    "Updated attendee profile: {$attendee->email}"
+                );
             }
 
             return ResponseHelper::success($response, 'Profile updated successfully', [

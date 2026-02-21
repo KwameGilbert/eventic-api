@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\OrderItem;
 use App\Models\Organizer;
+use App\Services\ActivityLogService;
 use App\Services\UploadService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -24,10 +25,12 @@ use Exception;
 class EventController
 {
     private UploadService $uploadService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct()
+    public function __construct(ActivityLogService $activityLogger)
     {
         $this->uploadService = new UploadService();
+        $this->activityLogger = $activityLogger;
     }
 
     /**
@@ -188,6 +191,10 @@ class EventController
 
             if (!$event) {
                 return ResponseHelper::error($response, 'Event not found', 404);
+            }
+
+            if ($event) {
+                $this->activityLogger->logView($request->getAttribute('user')->id ?? null, 'Event', $event->id, "Viewed event: {$event->title}");
             }
 
             return ResponseHelper::success($response, 'Event fetched successfully', $event->getFullDetails());
@@ -397,6 +404,15 @@ class EventController
                 }
             }
 
+            // Log activity
+            $this->activityLogger->logCreate(
+                $user->id, 
+                'Event', 
+                $event->id, 
+                $event->toArray(), 
+                "Created event: {$event->title}"
+            );
+
             return ResponseHelper::success($response, 'Event created successfully', $event->getFullDetails(), 201);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to create event', 500, $e->getMessage());
@@ -495,7 +511,19 @@ class EventController
                 }
             }
 
+            $oldValues = $event->getOriginal();
             $event->update($data);
+            $newValues = $event->getChanges();
+
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'Event', 
+                $event->id, 
+                $oldValues, 
+                $newValues, 
+                "Updated event: {$event->title}"
+            );
 
             // Handle event photos upload (multiple) using UploadService - these are added to existing photos
             if (isset($uploadedFiles['event_photos']) && is_array($uploadedFiles['event_photos'])) {
@@ -665,7 +693,20 @@ class EventController
                 return ResponseHelper::error($response, 'Cannot delete event with associated orders', 400);
             }
 
+            $oldValues = $event->toArray();
+            $eventTitle = $event->title;
+            $eventId = $event->id;
+
             $event->delete();
+
+            // Log activity
+            $this->activityLogger->logDelete(
+                $user->id, 
+                'Event', 
+                $eventId, 
+                $oldValues, 
+                "Deleted event: {$eventTitle}"
+            );
 
             return ResponseHelper::success($response, 'Event deleted successfully');
         } catch (Exception $e) {

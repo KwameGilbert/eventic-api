@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Models\Award;
 use App\Models\AwardImage;
 use App\Models\Organizer;
+use App\Services\ActivityLogService;
 use App\Services\UploadService;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -20,10 +21,12 @@ use Exception;
 class AwardController
 {
     private UploadService $uploadService;
+    private ActivityLogService $activityLogger;
 
-    public function __construct()
+    public function __construct(ActivityLogService $activityLogger)
     {
         $this->uploadService = new UploadService();
+        $this->activityLogger = $activityLogger;
         Award::autoUpdateCompletedStatuses();
     }
 
@@ -217,6 +220,9 @@ class AwardController
             // Increment views
             $award->increment('views');
 
+            // Log view
+            $this->activityLogger->logView($userId, 'Award', $award->id, "Viewed award: {$award->title}");
+
             return ResponseHelper::success($response, 'Award fetched successfully', $award->getFullDetails($userRole, $userId));
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to fetch award', 500, $e->getMessage());
@@ -376,6 +382,15 @@ class AwardController
                 }
             }
 
+            // Log activity
+            $this->activityLogger->logCreate(
+                $user->id, 
+                'Award', 
+                $award->id, 
+                $award->toArray(), 
+                "Created award: {$award->title}"
+            );
+
             return ResponseHelper::success($response, 'Award created successfully', $award->getFullDetails(), 201);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to create award', 500, $e->getMessage());
@@ -525,7 +540,19 @@ class AwardController
                 }
             }
 
+            $oldValues = $award->getOriginal();
             $award->update($data);
+            $newValues = $award->getChanges();
+
+            // Log activity
+            $this->activityLogger->logUpdate(
+                $user->id, 
+                'Award', 
+                $award->id, 
+                $oldValues, 
+                $newValues, 
+                "Updated award: {$award->title}"
+            );
 
             // Handle award photos upload (multiple) using UploadService - these are added to existing photos
             if (isset($uploadedFiles['award_photos']) && is_array($uploadedFiles['award_photos'])) {
@@ -579,7 +606,20 @@ class AwardController
                 return ResponseHelper::error($response, 'Cannot delete award with existing votes', 400);
             }
 
+            $oldValues = $award->toArray();
+            $awardTitle = $award->title;
+            $awardId = $award->id;
+            
             $award->delete();
+
+            // Log activity
+            $this->activityLogger->logDelete(
+                $user->id, 
+                'Award', 
+                $awardId, 
+                $oldValues, 
+                "Deleted award: {$awardTitle}"
+            );
 
             return ResponseHelper::success($response, 'Award deleted successfully');
         } catch (Exception $e) {

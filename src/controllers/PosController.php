@@ -11,6 +11,7 @@ use App\Models\Organizer;
 use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Services\ActivityLogService;
 use Exception;
 
 /**
@@ -19,6 +20,12 @@ use Exception;
  */
 class PosController
 {
+    private ActivityLogService $activityLogger;
+
+    public function __construct(ActivityLogService $activityLogger)
+    {
+        $this->activityLogger = $activityLogger;
+    }
     /**
      * Create a new POS account
      */
@@ -52,6 +59,15 @@ class PosController
                 'role' => 'pos',
                 'status' => 'active'
             ]);
+
+            // Log activity
+            $this->activityLogger->log(
+                $organizerUser->id, 
+                'create_pos', 
+                'User', 
+                $user->id, 
+                "Created POS account: {$user->email}"
+            );
 
             return ResponseHelper::success($response, 'POS account created successfully', $user->toArray(), 201);
         } catch (Exception $e) {
@@ -107,6 +123,15 @@ class PosController
                 }
             }
 
+            // Log activity
+            $this->activityLogger->log(
+                $organizerUser->id, 
+                'assign_pos', 
+                'User', 
+                $posUser->id, 
+                "Assigned POS {$posUser->email} to " . count($assignments) . " events"
+            );
+
             return ResponseHelper::success($response, 'POS assigned to events successfully', $assignments);
         } catch (Exception $e) {
             return ResponseHelper::error($response, 'Failed to assign POS', 500, $e->getMessage());
@@ -147,7 +172,19 @@ class PosController
                  return ResponseHelper::error($response, 'Unauthorized: POS user is not assigned to your organization', 403);
             }
             
+            $posEmail = $posUser->email;
+            $posUserId = $posUser->id;
+            
             $posUser->delete();
+
+            // Log activity
+            $this->activityLogger->log(
+                $organizerUser->id, 
+                'delete_pos', 
+                'User', 
+                $posUserId, 
+                "Deleted POS account: {$posEmail}"
+            );
 
             return ResponseHelper::success($response, 'POS account deleted successfully');
         } catch (Exception $e) {
