@@ -1,0 +1,55 @@
+### Kowri Payment Testing
+@baseUrl = https://posapi.kowri.app
+@appId = 892ba383-1d4a-4508-867f-c3b3fc1d5efc
+@appReference = eventic-payment
+@secret = $2a$10$K3qCU1sLYzDvWUxeFxV0KuSDcw1A3/9ffw64M7WsUzEXcOa9pta4m
+@phoneNumber = 0541436414
+@walletRef = 233541436414
+
+### 1. Create an Invoice (Required to get invoiceNum for Process Payment)
+# @name createInvoice
+POST {{baseUrl}}/webpos/createInvoice
+Content-Type: application/json
+appId: {{appId}}
+
+{
+    "requestId": "{{$guid}}",
+    "appReference": "{{appReference}}",
+    "secret": "{{secret}}",
+    "merchantOrderId": "TEST_ORD_{{$timestamp}}",
+    "currency": "GHS",
+    "amount": "1.00",
+    "reference": "Test USSD Invoice"
+}
+
+### 2. Process Payment (The one you asked for)
+# Copy the [invoiceNum] from the response of Step 1 and paste it below
+@invoiceNum = eabd3457-906e-4f83-ab57-bf22ca460b29
+
+POST {{baseUrl}}/webpos/processPayment
+Content-Type: application/json
+appId: {{appId}}
+
+{
+    "appReference": "{{appReference}}",
+    "secret": "{{secret}}",
+    "requestId": "{{$guid}}",
+    "invoiceNum": "{{invoiceNum}}",
+    "transactionId": "TEST_ORD_1771610325",
+    "provider": "MTN_MONEY",
+    "walletRef": "{{walletRef}}",
+    "customerName": "Gilbert Elikplim Kukah",
+    "customerMobile": "{{phoneNumber}}"
+}
+
+### 3. Check Invoice Status
+POST {{baseUrl}}/webpos/getInvoiceSummary
+Content-Type: application/json
+appId: {{appId}}
+
+{
+    "requestId": "{{$guid}}",
+    "appReference": "{{appReference}}",
+    "secret": "{{secret}}",
+    "invoiceNum": "{{invoiceNum}}"
+}
