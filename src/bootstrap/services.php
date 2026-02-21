@@ -11,6 +11,7 @@ use App\Services\SMSService;
 use App\Services\AuthService;
 use App\Services\PasswordResetService;
 use App\Services\VerificationService;
+use App\Services\CallbackService;
 use App\Controllers\AuthController;
 use App\Controllers\AdminController;
 use App\Controllers\UserController;
@@ -30,6 +31,7 @@ use App\Controllers\AwardCategoryController;
 use App\Controllers\AwardNomineeController;
 use App\Controllers\AwardVoteController;
 use App\Controllers\SearchController;
+use App\Controllers\WebhookController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
 use App\Middleware\JsonBodyParserMiddleware;
@@ -87,6 +89,10 @@ return function ($container) {
     $container->set(\Psr\Http\Message\ResponseFactoryInterface::class, function () {
         return new \Slim\Psr7\Factory\ResponseFactory();
     });
+
+    $container->set(CallbackService::class, function ($container) {
+        return new CallbackService($container->get(\App\Services\ActivityLogService::class));
+    });
     
     // ==================== CONTROLLERS ====================
     
@@ -132,7 +138,10 @@ return function ($container) {
     });
 
     $container->set(OrderController::class, function ($container) {
-        return new OrderController($container->get(\App\Services\ActivityLogService::class));
+        return new OrderController(
+            $container->get(\App\Services\ActivityLogService::class),
+            $container->get(CallbackService::class)
+        );
     });
 
     $container->set(TicketController::class, function ($container) {
@@ -167,7 +176,10 @@ return function ($container) {
     });
 
     $container->set(AwardVoteController::class, function ($container) {
-        return new AwardVoteController($container->get(\App\Services\ActivityLogService::class));
+        return new AwardVoteController(
+            $container->get(\App\Services\ActivityLogService::class),
+            $container->get(CallbackService::class)
+        );
     });
 
     $container->set(SearchController::class, function () {
@@ -179,6 +191,10 @@ return function ($container) {
             $container->get(AuthService::class),
             $container->get(\App\Services\ActivityLogService::class)
         );
+    });
+
+    $container->set(WebhookController::class, function ($container) {
+        return new WebhookController($container->get(CallbackService::class));
     });
     
     // ==================== MIDDLEWARES ====================

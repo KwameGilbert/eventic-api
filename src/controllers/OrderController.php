@@ -17,6 +17,7 @@ use App\Helper\ResponseHelper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Illuminate\Database\Capsule\Manager as DB;
+use App\Services\CallbackService;
 use Exception;
 
 /**
@@ -27,11 +28,13 @@ class OrderController
 {
     private \App\Services\KowriService $kowriService;
     private ActivityLogService $activityLogger;
+    private CallbackService $callbackService;
 
-    public function __construct(ActivityLogService $activityLogger)
+    public function __construct(ActivityLogService $activityLogger, CallbackService $callbackService)
     {
         $this->kowriService = new \App\Services\KowriService();
         $this->activityLogger = $activityLogger;
+        $this->callbackService = $callbackService;
     }
 
     /**
@@ -233,7 +236,7 @@ class OrderController
                 'name' => $order->customer_name,
                 'phone' => $data['phone'] ?? $order->customer_phone,
                 'description' => "Order #{$order->id} payment",
-                'webhook_url' => $_ENV['APP_URL'] . '/v1/payment/webhook',
+                'webhook_url' => $_ENV['APP_URL'] . '/v1/webhooks/kowri/order',
                 'redirect_url' => $_ENV['FRONTEND_URL'] . '/payment/verify?order_id=' . $order->id,
                 'network' => $network
             ];
@@ -324,42 +327,15 @@ class OrderController
     {
         try {
             $payload = $request->getParsedBody();
-            
             if (empty($payload)) {
                 $payload = json_decode(file_get_contents('php://input'), true);
             }
 
-            if (empty($payload) || !isset($payload['status'])) {
-                return ResponseHelper::error($response, 'Invalid payload', 400);
-            }
-
-            // status: FULFILLED or UNFULFILLED_ERROR
-            $status = strtoupper($payload['status']);
-            $orderId = $payload['orderId'] ?? null;
-            $transactionId = $payload['transactionId'] ?? null;
-
-            if (!$orderId) {
-                return ResponseHelper::error($response, 'Order ID missing', 400);
-            }
-
-            $order = Order::where('payment_reference', $orderId)->first();
+            $this->callbackService->handleOrderWebhook($payload ?? []);
             
-            if (!$order) {
-                return ResponseHelper::error($response, 'Order not found', 404);
-            }
-
-            if ($status === 'FULFILLED') {
-                if ($order->status !== Order::STATUS_PAID) {
-                    $this->processSuccessfulPayment($order, $orderId);
-                }
-            } else if ($status === 'UNFULFILLED_ERROR') {
-                $this->handleChargeFailed($payload);
-            }
-
             return ResponseHelper::success($response, 'Webhook processed', [], 200);
-
         } catch (Exception $e) {
-            error_log('Kowri Webhook Error: ' . $e->getMessage());
+            error_log('Legacy Order Webhook Error: ' . $e->getMessage());
             return ResponseHelper::error($response, 'Webhook processing failed', 500);
         }
     }

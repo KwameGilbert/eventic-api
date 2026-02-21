@@ -42,6 +42,7 @@ return function ($app): void {
         '/v1/votes' => ROUTE . 'v1/AwardVoteRoute.php',
 
         '/v1/search' => ROUTE . 'v1/SearchRoute.php',
+        '/v1/webhooks' => ROUTE . 'v1/WebhookRoute.php',
 
         // Utils
         '/v1/utils' => ROUTE . 'v1/UtilsRoute.php',

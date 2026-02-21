@@ -17,17 +17,20 @@ use App\Services\ActivityLogService;
 use App\Services\KowriService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Services\CallbackService;
 use Exception;
 
 class AwardVoteController
 {
     private KowriService $kowriService;
     private ActivityLogService $activityLogger;
+    private CallbackService $callbackService;
 
-    public function __construct(ActivityLogService $activityLogger)
+    public function __construct(ActivityLogService $activityLogger, CallbackService $callbackService)
     {
         $this->kowriService = new KowriService();
         $this->activityLogger = $activityLogger;
+        $this->callbackService = $callbackService;
     }
     /**
      * Initiate a vote (create pending vote and return payment details)
@@ -107,7 +110,7 @@ class AwardVoteController
             $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
             $apiUrl = $_ENV['APP_URL'] ?? 'http://localhost:8080';
             $redirectUrl = $frontendUrl . '/payment/callback';
-            $webhookUrl = $apiUrl . '/v1/votes/ipn';
+            $webhookUrl = $apiUrl . '/v1/webhooks/kowri/vote';
 
             $network = strtoupper($data['network'] ?? '');
             $isCard = ($network === 'CARD');
@@ -303,99 +306,17 @@ class AwardVoteController
     {
         try {
             $payload = $request->getParsedBody();
-            
             if (empty($payload)) {
                 $payload = json_decode(file_get_contents('php://input'), true);
             }
 
-            error_log("Kowri Vote IPN received: " . json_encode($payload));
-
-            if (empty($payload) || !isset($payload['status'])) {
-                $response->getBody()->write('OK');
-                return $response->withStatus(200);
-            }
-
-            // Status: FULFILLED, UNFULFILLED_ERROR
-            $status = strtoupper($payload['status']);
-            $orderId = $payload['orderId'] ?? null; // This is our reference
-            $transactionId = $payload['transactionId'] ?? null;
-
-            if (!$orderId) {
-                error_log("IPN Error: Order ID missing");
-                $response->getBody()->write('OK');
-                return $response->withStatus(200);
-            }
-
-            // Find vote by reference
-            $vote = AwardVote::with(['category', 'award.organizer'])->where('reference', $orderId)->first();
-
-            if (!$vote) {
-                error_log("IPN Error: Vote not found for reference: {$orderId}");
-                $response->getBody()->write('OK');
-                return $response->withStatus(200);
-            }
-
-            // Already paid - no action needed
-            if ($vote->isPaid()) {
-                error_log("IPN: Vote already paid. Reference: {$orderId}");
-                $response->getBody()->write('OK');
-                return $response->withStatus(200);
-            }
-
-            // If FULFILLED, proceed. If UNFULFILLED_ERROR, we might mark as failed.
-            if ($status !== 'FULFILLED') {
-                error_log("IPN: Payment not successful. Status: {$status}");
-                if ($status === 'UNFULFILLED_ERROR') {
-                    $vote->status = 'failed';
-                    $vote->save();
-                }
-                $response->getBody()->write('OK');
-                return $response->withStatus(200);
-            }
-
-            // Mark vote as paid
-            $vote->status = 'paid';
-            $vote->save();
-
-            // Log activity (confirmed vote)
-            $this->activityLogger->log(
-                null, // System/IPN action
-                'confirm_vote', 
-                'AwardVote', 
-                $vote->id, 
-                "Confirmed {$vote->number_of_votes} votes for nominee ID #{$vote->nominee_id} (Reference: {$orderId})"
-            );
-
-
-            error_log("IPN: Vote confirmed. ID: {$vote->id}, Reference: {$orderId}");
-
-            // Create transaction and update organizer balance
-            $award = $vote->award;
-            if ($award && $award->organizer) {
-                $organizerId = $award->organizer->id;
-
-                Transaction::createVotePurchase(
-                    $organizerId,
-                    $vote->award_id,
-                    $vote->id,
-                    (float) $vote->gross_amount,
-                    (float) $vote->admin_amount,
-                    (float) $vote->organizer_amount,
-                    (float) $vote->payment_fee,
-                    "Vote purchase (IPN): {$award->title}",
-                    $vote->payment_method,
-                    $vote->source
-                );
-
-                $balance = OrganizerBalance::getOrCreate($organizerId);
-                $balance->addPendingEarnings((float) $vote->organizer_amount);
-            }
+            $this->callbackService->handleVoteWebhook($payload ?? []);
 
             $response->getBody()->write('OK');
             return $response->withStatus(200);
         } catch (Exception $e) {
-            error_log("IPN Exception: " . $e->getMessage());
-            // Always return 200 to Kowri so they don't keep retrying
+            error_log("Legacy Vote IPN Error: " . $e->getMessage());
+            // Always return 200 to Kowri
             $response->getBody()->write('OK');
             return $response->withStatus(200);
         }
